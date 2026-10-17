@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   PayloadTooLargeException,
 } from '@nestjs/common';
@@ -67,6 +68,25 @@ export class ApplicationSourceService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        const application = await tx.application.findFirst({
+          where: {
+            id: applicationId,
+            status: { not: 'ARCHIVED' },
+            project: { status: 'ACTIVE' },
+          },
+          select: { id: true, project: { select: { workspace: { select: { organizationId: true } } } } },
+        });
+        if (!application) throw new ForbiddenException('The application is not writable.');
+        const membership = await tx.membership.findFirst({
+          where: {
+            userId,
+            organizationId: application.project.workspace.organizationId,
+            role: { in: this.access.writeRoles() },
+          },
+          select: { id: true },
+        });
+        if (!membership) throw new ForbiddenException('Write access was revoked before source persistence.');
+
         const results: Array<{
           id: string;
           path: string;
