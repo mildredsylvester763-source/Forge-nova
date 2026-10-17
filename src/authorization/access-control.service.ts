@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { MembershipRole } from '@prisma/client';
+import { MembershipRole, WorkGraphStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 
 @Injectable()
@@ -61,6 +61,31 @@ export class AccessControlService {
     });
     if (!application) throw new NotFoundException('Application not found.');
     return application;
+  }
+
+  async requireWorkGraphRole(
+    userId: string,
+    graphId: string,
+    allowedRoles: MembershipRole[],
+  ): Promise<{ id: string; applicationId: string; status: WorkGraphStatus }> {
+    const graph = await this.prisma.workGraph.findFirst({
+      where: {
+        id: graphId,
+        application: {
+          project: {
+            status: 'ACTIVE',
+            workspace: {
+              organization: {
+                memberships: { some: { userId, role: { in: allowedRoles } } },
+              },
+            },
+          },
+        },
+      },
+      select: { id: true, applicationId: true, status: true },
+    });
+    if (!graph) throw new NotFoundException('Work graph not found.');
+    return graph;
   }
 
   async requireConversationRole(
