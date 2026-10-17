@@ -9,7 +9,8 @@ This document separates source code that exists from planned capabilities that h
 - Account registration/login, bcrypt password hashing, opaque hashed refresh tokens, refresh rotation, revocation, and session-bound access-token validation.
 - Organizations, memberships, workspaces, projects, and applications with membership-based access checks.
 - Persistent project conversations and user messages, separated from application lifecycle.
-- Text source file storage with immutable revision history, optimistic concurrency, safe path validation, and high-confidence secret scanning.
+- Text source file storage with immutable revision history, restore, optimistic concurrency, safe path validation, and high-confidence secret scanning.
+- Asynchronous AI source generation with structured-output validation, provider routing, atomic multi-file writes, conflict detection, secret/path checks, and honest NOT_RUN build-verification status.
 - Work graph and node/dependency persistence, cycle validation, ready-node analysis, and recoverable AI planning leases.
 - Provider-neutral adapters for OpenAI, Anthropic, Google AI, and Mistral; configurable routing/fallback; provider response normalization; and raw token/call usage metering.
 - Internal durable job queue with atomic PostgreSQL claiming, worker leases, heartbeats, retry handling, cooperative cancellation, completion/failure recording, and authenticated job-status/cancel routes.
@@ -20,7 +21,7 @@ This document separates source code that exists from planned capabilities that h
 
 ## Not implemented yet
 - Frontend.
-- Concrete handlers for code generation, source modification, builds, tests, security scans, deployment, and other job types beyond work-graph planning.
+- Concrete handlers for full work-graph execution, source modification, builds, tests, security scans, deployment, and other job types beyond initial source generation and work-graph planning.
 - Full code-generation execution and safe sandbox runtime.
 - Actual build/test/security-scan execution against generated applications.
 - File/object storage adapter for binary assets and large repositories.
