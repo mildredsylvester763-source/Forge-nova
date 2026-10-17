@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -55,6 +56,26 @@ export class FileController {
     @Param('fileId') fileId: string,
   ) {
     return this.files.revisions(request.user.sub, applicationId, fileId);
+  }
+
+  @Post(':fileId/restore/:revision')
+  restore(
+    @Req() request: AuthenticatedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('fileId') fileId: string,
+    @Param('revision', ParseIntPipe) revision: number,
+    @Body() body: { expectedCurrentRevision?: number },
+  ) {
+    if (!Number.isInteger(body.expectedCurrentRevision) || (body.expectedCurrentRevision ?? 0) < 1) {
+      throw new BadRequestException('expectedCurrentRevision must be a positive integer.');
+    }
+    return this.files.restore(
+      request.user.sub,
+      applicationId,
+      fileId,
+      revision,
+      body.expectedCurrentRevision as number,
+    );
   }
 
   @Delete(':fileId/revision/:expectedRevision')
