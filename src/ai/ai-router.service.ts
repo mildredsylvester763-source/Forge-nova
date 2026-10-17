@@ -5,6 +5,7 @@ import { ResourceMeterService } from '../execution/resource-meter.service';
 import { AiCompletionInput, AiCompletionResult, AiProviderId } from './ai.types';
 import { AiProviderError } from './providers/ai-provider.interface';
 import { AiProviderRegistry } from './ai-provider-registry.service';
+import { SecretScannerService } from '../security/secret-scanner.service';
 
 @Injectable()
 export class AiRouterService {
@@ -12,6 +13,7 @@ export class AiRouterService {
     private readonly registry: AiProviderRegistry,
     private readonly meter: ResourceMeterService,
     private readonly config: ConfigService,
+    private readonly secrets: SecretScannerService,
   ) {}
 
   availableProviders() {
@@ -25,6 +27,8 @@ export class AiRouterService {
     if (!input.systemPrompt.trim() || !input.userPrompt.trim()) {
       throw new BadRequestException('System and user prompts must not be empty.');
     }
+    this.secrets.assertNoSecrets(input.systemPrompt);
+    this.secrets.assertNoSecrets(input.userPrompt);
     if (!Number.isInteger(input.maxOutputTokens) || input.maxOutputTokens < 1 || input.maxOutputTokens > 32768) {
       throw new BadRequestException('maxOutputTokens must be an integer from 1 to 32768.');
     }
