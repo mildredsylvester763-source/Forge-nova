@@ -37,6 +37,7 @@ export class OpenAiProvider implements AiProvider {
         ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
       },
       timeoutMs,
+      input.signal,
     );
     const text = requireText(data.choices?.[0]?.message?.content, this.id);
     const usage = data.usage ?? {};
