@@ -319,3 +319,36 @@ ALTER TABLE "WorkDependency" ADD CONSTRAINT "WorkDependency_fromNodeId_fkey"
   FOREIGN KEY ("fromNodeId") REFERENCES "WorkNode"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "WorkDependency" ADD CONSTRAINT "WorkDependency_toNodeId_fkey"
   FOREIGN KEY ("toNodeId") REFERENCES "WorkNode"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "WorkJob"
+  ADD COLUMN "lockedBy" TEXT,
+  ADD COLUMN "leaseExpiresAt" TIMESTAMP(3),
+  ADD COLUMN "heartbeatAt" TIMESTAMP(3),
+  ADD COLUMN "cancelRequestedAt" TIMESTAMP(3),
+  ADD COLUMN "maxAttempts" INTEGER NOT NULL DEFAULT 3;
+
+CREATE TABLE "ResourceUsageEvent" (
+  "id" TEXT NOT NULL,
+  "applicationId" TEXT NOT NULL,
+  "jobId" TEXT,
+  "eventType" TEXT NOT NULL,
+  "provider" TEXT,
+  "model" TEXT,
+  "unit" TEXT NOT NULL,
+  "quantity" DECIMAL(24,8) NOT NULL,
+  "dimensions" JSONB,
+  "idempotencyKey" TEXT,
+  "occurredAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "ResourceUsageEvent_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX "ResourceUsageEvent_applicationId_idempotencyKey_key" ON "ResourceUsageEvent"("applicationId", "idempotencyKey");
+CREATE INDEX "ResourceUsageEvent_applicationId_occurredAt_idx" ON "ResourceUsageEvent"("applicationId", "occurredAt");
+CREATE INDEX "ResourceUsageEvent_jobId_occurredAt_idx" ON "ResourceUsageEvent"("jobId", "occurredAt");
+CREATE INDEX "ResourceUsageEvent_eventType_occurredAt_idx" ON "ResourceUsageEvent"("eventType", "occurredAt");
+
+ALTER TABLE "ResourceUsageEvent" ADD CONSTRAINT "ResourceUsageEvent_applicationId_fkey"
+  FOREIGN KEY ("applicationId") REFERENCES "Application"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "ResourceUsageEvent" ADD CONSTRAINT "ResourceUsageEvent_jobId_fkey"
+  FOREIGN KEY ("jobId") REFERENCES "WorkJob"("id") ON DELETE SET NULL ON UPDATE CASCADE;
