@@ -256,3 +256,66 @@ ALTER TABLE "ApplicationFile" ADD CONSTRAINT "ApplicationFile_applicationId_fkey
   FOREIGN KEY ("applicationId") REFERENCES "Application"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "FileRevision" ADD CONSTRAINT "FileRevision_fileId_fkey"
   FOREIGN KEY ("fileId") REFERENCES "ApplicationFile"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE TYPE "WorkGraphStatus" AS ENUM ('DRAFT', 'READY', 'EXECUTING', 'COMPLETED', 'FAILED', 'CANCELLED');
+CREATE TYPE "WorkNodeStatus" AS ENUM ('PENDING', 'READY', 'RUNNING', 'WAITING_FOR_APPROVAL', 'SUCCEEDED', 'FAILED', 'SKIPPED', 'CANCELLED');
+CREATE TYPE "WorkNodeType" AS ENUM ('REQUIREMENT', 'ANALYSIS', 'GENERATE', 'MODIFY', 'BUILD', 'TEST', 'SECURITY_SCAN', 'DEPLOY', 'VERIFY', 'EXTERNAL_TOOL');
+CREATE TYPE "WorkRiskLevel" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL');
+
+CREATE TABLE "WorkGraph" (
+  "id" TEXT NOT NULL,
+  "applicationId" TEXT NOT NULL,
+  "title" TEXT NOT NULL,
+  "sourcePrompt" TEXT NOT NULL,
+  "status" "WorkGraphStatus" NOT NULL DEFAULT 'DRAFT',
+  "version" INTEGER NOT NULL DEFAULT 1,
+  "createdBy" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "WorkGraph_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "WorkNode" (
+  "id" TEXT NOT NULL,
+  "graphId" TEXT NOT NULL,
+  "key" TEXT NOT NULL,
+  "type" "WorkNodeType" NOT NULL,
+  "title" TEXT NOT NULL,
+  "description" TEXT,
+  "status" "WorkNodeStatus" NOT NULL DEFAULT 'PENDING',
+  "riskLevel" "WorkRiskLevel" NOT NULL DEFAULT 'LOW',
+  "requiresApproval" BOOLEAN NOT NULL DEFAULT false,
+  "input" JSONB NOT NULL,
+  "output" JSONB,
+  "estimatedResources" JSONB,
+  "actualResources" JSONB,
+  "attemptCount" INTEGER NOT NULL DEFAULT 0,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "WorkNode_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "WorkDependency" (
+  "id" TEXT NOT NULL,
+  "fromNodeId" TEXT NOT NULL,
+  "toNodeId" TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "WorkDependency_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "WorkDependency_no_self_edge_check" CHECK ("fromNodeId" <> "toNodeId")
+);
+
+CREATE INDEX "WorkGraph_applicationId_status_updatedAt_idx" ON "WorkGraph"("applicationId", "status", "updatedAt");
+CREATE UNIQUE INDEX "WorkNode_graphId_key_key" ON "WorkNode"("graphId", "key");
+CREATE INDEX "WorkNode_graphId_status_createdAt_idx" ON "WorkNode"("graphId", "status", "createdAt");
+CREATE INDEX "WorkNode_status_riskLevel_createdAt_idx" ON "WorkNode"("status", "riskLevel", "createdAt");
+CREATE UNIQUE INDEX "WorkDependency_fromNodeId_toNodeId_key" ON "WorkDependency"("fromNodeId", "toNodeId");
+CREATE INDEX "WorkDependency_toNodeId_idx" ON "WorkDependency"("toNodeId");
+
+ALTER TABLE "WorkGraph" ADD CONSTRAINT "WorkGraph_applicationId_fkey"
+  FOREIGN KEY ("applicationId") REFERENCES "Application"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "WorkNode" ADD CONSTRAINT "WorkNode_graphId_fkey"
+  FOREIGN KEY ("graphId") REFERENCES "WorkGraph"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "WorkDependency" ADD CONSTRAINT "WorkDependency_fromNodeId_fkey"
+  FOREIGN KEY ("fromNodeId") REFERENCES "WorkNode"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "WorkDependency" ADD CONSTRAINT "WorkDependency_toNodeId_fkey"
+  FOREIGN KEY ("toNodeId") REFERENCES "WorkNode"("id") ON DELETE CASCADE ON UPDATE CASCADE;
