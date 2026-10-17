@@ -248,12 +248,13 @@ export class WorkGraphService {
       if (!state.has(node.id)) visit(node.id);
     }
 
+    const statusById = new Map(nodes.map((node) => [node.id, node.status]));
     const readyNodes = nodes
       .filter(
         (node) =>
           node.status === WorkNodeStatus.PENDING &&
           node.incomingDependencies.every((edge) =>
-            nodes.some((candidate) => candidate.id === edge.fromNodeId && candidate.status === WorkNodeStatus.SUCCEEDED),
+            statusById.get(edge.fromNodeId) === WorkNodeStatus.SUCCEEDED,
           ),
       )
       .map((node) => ({ id: node.id, key: node.key }));
