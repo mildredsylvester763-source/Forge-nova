@@ -79,6 +79,7 @@ enum WorkGraphStatus {
 }
 
 enum WorkNodeStatus {
+  RECORDED
   PENDING
   READY
   RUNNING
