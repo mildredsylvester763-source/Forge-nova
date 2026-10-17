@@ -35,6 +35,7 @@ export class ApplicationSourceService {
     applicationId: string,
     files: GeneratedSourceFile[],
     expectedRevisions: Record<string, number>,
+    signal?: AbortSignal,
   ) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
     if (files.length < 1 || files.length > MAX_GENERATED_FILES) {
@@ -68,6 +69,7 @@ export class ApplicationSourceService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        if (signal?.aborted) throw new ConflictException('Source generation was cancelled before persistence.');
         const application = await tx.application.findFirst({
           where: {
             id: applicationId,
@@ -96,6 +98,7 @@ export class ApplicationSourceService {
         }> = [];
 
         for (const file of normalized) {
+          if (signal?.aborted) throw new ConflictException('Source generation was cancelled; the batch was rolled back.');
           const current = await tx.applicationFile.findUnique({
             where: { applicationId_path: { applicationId, path: file.path } },
           });
@@ -172,6 +175,7 @@ export class ApplicationSourceService {
           });
         }
 
+        if (signal?.aborted) throw new ConflictException('Source generation was cancelled before commit; the batch was rolled back.');
         return {
           applicationId,
           filesApplied: results.length,
