@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { validateEnvironment } from './common/config/env.validation';
 
@@ -12,6 +13,7 @@ async function bootstrap(): Promise<void> {
     abortOnError: false,
   });
 
+  app.use(helmet());
   app.setGlobalPrefix(`${process.env.API_PREFIX ?? 'api'}/v${process.env.API_VERSION ?? '1'}`);
   app.enableShutdownHooks();
   app.useGlobalPipes(
