@@ -163,7 +163,7 @@ export class AuthService {
       }
 
       const nextToken = randomBytes(48).toString('base64url');
-      await tx.authSession.create({
+      const nextSession = await tx.authSession.create({
         data: {
           userId: session.user.id,
           refreshTokenHash: this.hashToken(nextToken),
@@ -171,6 +171,7 @@ export class AuthService {
           ipAddress: this.clientIp(request),
           userAgent: this.userAgent(request),
         },
+        select: { id: true },
       });
 
       await tx.auditEvent.create({
@@ -186,7 +187,7 @@ export class AuthService {
         },
       });
 
-      return nextToken;
+      return { refreshToken: nextToken, sessionId: nextSession.id };
     });
 
     if (!rotated) {
@@ -199,8 +200,8 @@ export class AuthService {
         email: session.user.email,
         displayName: session.user.displayName,
       },
-      ...(await this.issueAccessToken(session.user.id, session.user.email)),
-      refreshToken: rotated,
+      ...(await this.issueAccessToken(session.user.id, session.user.email, rotated.sessionId)),
+      refreshToken: rotated.refreshToken,
       tokenType: 'Bearer' as const,
       expiresIn: this.accessTokenTtl,
     };
@@ -259,7 +260,7 @@ export class AuthService {
 
   private async createSession(userId: string, email: string, request: Request): Promise<AuthTokens> {
     const refreshToken = randomBytes(48).toString('base64url');
-    await this.prisma.authSession.create({
+    const session = await this.prisma.authSession.create({
       data: {
         userId,
         refreshTokenHash: this.hashToken(refreshToken),
@@ -267,9 +268,10 @@ export class AuthService {
         ipAddress: this.clientIp(request),
         userAgent: this.userAgent(request),
       },
+      select: { id: true },
     });
 
-    const access = await this.issueAccessToken(userId, email);
+    const access = await this.issueAccessToken(userId, email, session.id);
     return {
       ...access,
       refreshToken,
@@ -278,9 +280,9 @@ export class AuthService {
     };
   }
 
-  private async issueAccessToken(userId: string, email: string) {
+  private async issueAccessToken(userId: string, email: string, sessionId: string) {
     const accessToken = await this.jwt.signAsync(
-      { sub: userId, email },
+      { sub: userId, email, sid: sessionId },
       { expiresIn: this.accessTokenTtl },
     );
     return { accessToken };
