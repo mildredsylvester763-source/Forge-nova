@@ -9,7 +9,6 @@ const environmentSchema = z.object({
     (value) => value.startsWith('postgresql://') || value.startsWith('postgres://'),
     'must be a valid PostgreSQL connection URL',
   ),
-  DATABASE_POOL_TIMEOUT_SECONDS: z.coerce.number().int().positive().max(120).default(10),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   CORS_ORIGINS: z.string().default(''),
   JWT_ACCESS_SECRET: z.string().min(32),
