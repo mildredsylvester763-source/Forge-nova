@@ -1,7 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { normalizeApplicationPath } from './path-safety';
 
-describe('normalizeApplicationPath', () => {\n  const backslashPath = 'src' + String.fromCharCode(92) + 'app.ts';
+describe('normalizeApplicationPath', () => {
+  const backslashPath = 'src' + String.fromCharCode(92) + 'app.ts';
   it('accepts safe nested source paths', () => {
     expect(normalizeApplicationPath('src/modules/app.service.ts')).toBe('src/modules/app.service.ts');
     expect(normalizeApplicationPath('.env.example')).toBe('.env.example');
