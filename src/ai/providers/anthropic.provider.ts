@@ -35,6 +35,7 @@ export class AnthropicProvider implements AiProvider {
         ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
       },
       timeoutMs,
+      input.signal,
     );
     const text = requireText(
       Array.isArray(data.content)
