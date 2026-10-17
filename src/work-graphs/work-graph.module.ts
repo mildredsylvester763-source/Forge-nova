@@ -11,5 +11,6 @@ import { WorkGraphPlannerService } from './work-graph-planner.service';
   imports: [SecurityModule, AiModule, ExecutionModule],
   controllers: [WorkGraphController, WorkGraphPlannerController],
   providers: [WorkGraphService, WorkGraphPlannerService],
+  exports: [WorkGraphPlannerService],
 })
 export class WorkGraphModule {}
