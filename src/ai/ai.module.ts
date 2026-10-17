@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ExecutionModule } from '../execution/execution.module';
+import { SecurityModule } from '../security/security.module';
 import { AI_PROVIDER_ADAPTERS, AiProviderRegistry } from './ai-provider-registry.service';
 import { AiRouterService } from './ai-router.service';
 import { AnthropicProvider } from './providers/anthropic.provider';
@@ -9,7 +10,7 @@ import { MistralProvider } from './providers/mistral.provider';
 import { OpenAiProvider } from './providers/openai.provider';
 
 @Module({
-  imports: [ConfigModule, ExecutionModule],
+  imports: [ConfigModule, ExecutionModule, SecurityModule],
   providers: [
     OpenAiProvider,
     AnthropicProvider,
