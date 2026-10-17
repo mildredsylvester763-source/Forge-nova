@@ -155,6 +155,7 @@ The following foundations have initial code in the repository; this is not a pro
 - HTTP Security Header and Request-Throttling Layer
 - Secret Pattern Scanner
 - Versioned Source File Store
+- Application Checkpoint Snapshot and Atomic Restore Engine
 - Optimistic Revision Conflict Detection
 - Atomic Generated Source Batch Writer
 - Work Graph Schema and Dependency Validator
