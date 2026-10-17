@@ -69,7 +69,7 @@ export class AccessControlService {
     userId: string,
     graphId: string,
     allowedRoles: MembershipRole[],
-  ): Promise<{ id: string; applicationId: string; status: WorkGraphStatus }> {
+  ): Promise<{ id: string; applicationId: string; status: WorkGraphStatus; version: number }> {
     const readOnly = allowedRoles.includes(MembershipRole.VIEWER);
     const graph = await this.prisma.workGraph.findFirst({
       where: {
@@ -86,7 +86,7 @@ export class AccessControlService {
           },
         },
       },
-      select: { id: true, applicationId: true, status: true },
+      select: { id: true, applicationId: true, status: true, version: true },
     });
     if (!graph) throw new NotFoundException('Work graph not found.');
     return graph;
