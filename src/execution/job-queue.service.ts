@@ -172,31 +172,62 @@ export class JobQueueService {
   async heartbeat(jobId: string, workerId: string, requestedLeaseMs = DEFAULT_LEASE_MS) {
     const leaseMs = Math.min(MAX_LEASE_MS, Math.max(MIN_LEASE_MS, requestedLeaseMs));
     const now = new Date();
-    const updated = await this.prisma.workJob.updateMany({
+    const current = await this.prisma.workJob.findFirst({
       where: {
         id: jobId,
         status: JobStatus.RUNNING,
         lockedBy: workerId,
         leaseExpiresAt: { gt: now },
       },
-      data: {
-        heartbeatAt: now,
-        leaseExpiresAt: new Date(now.getTime() + leaseMs),
-      },
+      select: { id: true, leaseExpiresAt: true, cancelRequestedAt: true },
     });
-    if (updated.count !== 1) {
+    if (!current || !current.leaseExpiresAt) {
       throw new ConflictException('Worker lease is missing, expired, or owned by another worker.');
     }
+    if (current.cancelRequestedAt) {
+      return {
+        jobId: current.id,
+        leaseExpiresAt: current.leaseExpiresAt,
+        cancellationRequested: true,
+      };
+    }
 
-    const job = await this.prisma.workJob.findUniqueOrThrow({
-      where: { id: jobId },
-      select: { id: true, status: true, cancelRequestedAt: true, leaseExpiresAt: true },
+    const renewalThreshold = new Date(now.getTime() + Math.floor(leaseMs / 2));
+    if (current.leaseExpiresAt > renewalThreshold) {
+      return {
+        jobId: current.id,
+        leaseExpiresAt: current.leaseExpiresAt,
+        cancellationRequested: false,
+      };
+    }
+
+    const renewedUntil = new Date(now.getTime() + leaseMs);
+    const updated = await this.prisma.workJob.updateMany({
+      where: {
+        id: jobId,
+        status: JobStatus.RUNNING,
+        lockedBy: workerId,
+        leaseExpiresAt: { gt: now },
+        cancelRequestedAt: null,
+      },
+      data: { heartbeatAt: now, leaseExpiresAt: renewedUntil },
     });
-    return {
-      jobId: job.id,
-      leaseExpiresAt: job.leaseExpiresAt,
-      cancellationRequested: job.cancelRequestedAt !== null,
-    };
+    if (updated.count === 1) {
+      return { jobId, leaseExpiresAt: renewedUntil, cancellationRequested: false };
+    }
+
+    const latest = await this.prisma.workJob.findFirst({
+      where: { id: jobId, status: JobStatus.RUNNING, lockedBy: workerId },
+      select: { id: true, leaseExpiresAt: true, cancelRequestedAt: true },
+    });
+    if (latest?.cancelRequestedAt) {
+      return {
+        jobId: latest.id,
+        leaseExpiresAt: latest.leaseExpiresAt,
+        cancellationRequested: true,
+      };
+    }
+    throw new ConflictException('Worker lease is missing, expired, or owned by another worker.');
   }
 
   async complete(jobId: string, workerId: string, result: Prisma.InputJsonValue) {
