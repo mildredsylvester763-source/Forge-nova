@@ -103,10 +103,12 @@ export class WorkGraphPlannerService {
         signal,
       });
 
+      if (signal?.aborted) throw new ConflictException('Work graph planning was cancelled before the plan could be saved.');
       const plan = parseWorkPlan(result.text);
       this.secrets.assertNoSecrets(JSON.stringify(plan));
 
       return await this.prisma.$transaction(async (tx) => {
+        if (signal?.aborted) throw new ConflictException('Work graph planning was cancelled before persistence.');
         const locked = await tx.workGraph.findFirst({
           where: {
             id: graphId,
@@ -157,6 +159,7 @@ export class WorkGraphPlannerService {
         }
         await tx.workDependency.createMany({ data: edges });
 
+        if (signal?.aborted) throw new ConflictException('Work graph planning was cancelled before commit.');
         const updated = await tx.workGraph.update({
           where: { id: graphId },
           data: {
