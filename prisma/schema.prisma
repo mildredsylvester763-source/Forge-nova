@@ -68,6 +68,46 @@ enum AuditOutcome {
   FAILURE
 }
 
+enum WorkGraphStatus {
+  DRAFT
+  READY
+  EXECUTING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum WorkNodeStatus {
+  PENDING
+  READY
+  RUNNING
+  WAITING_FOR_APPROVAL
+  SUCCEEDED
+  FAILED
+  SKIPPED
+  CANCELLED
+}
+
+enum WorkNodeType {
+  REQUIREMENT
+  ANALYSIS
+  GENERATE
+  MODIFY
+  BUILD
+  TEST
+  SECURITY_SCAN
+  DEPLOY
+  VERIFY
+  EXTERNAL_TOOL
+}
+
+enum WorkRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
 model User {
   id              String        @id @default(cuid())
   email           String        @unique
@@ -174,6 +214,7 @@ model Application {
   checkpoints    Checkpoint[]
   deployments    Deployment[]
   files          ApplicationFile[]
+  workGraphs     WorkGraph[]
 
   @@index([projectId, status, updatedAt])
 }
@@ -310,4 +351,58 @@ model FileRevision {
 
   @@unique([fileId, revision])
   @@index([fileId, createdAt])
+}
+
+model WorkGraph {
+  id            String          @id @default(cuid())
+  applicationId String
+  title         String
+  sourcePrompt  String          @db.Text
+  status        WorkGraphStatus @default(DRAFT)
+  version       Int             @default(1)
+  createdBy     String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  application   Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  nodes         WorkNode[]
+
+  @@index([applicationId, status, updatedAt])
+}
+
+model WorkNode {
+  id                   String          @id @default(cuid())
+  graphId              String
+  key                  String
+  type                 WorkNodeType
+  title                String
+  description          String?         @db.Text
+  status               WorkNodeStatus  @default(PENDING)
+  riskLevel            WorkRiskLevel   @default(LOW)
+  requiresApproval     Boolean         @default(false)
+  input                Json
+  output               Json?
+  estimatedResources   Json?
+  actualResources      Json?
+  attemptCount         Int             @default(0)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  graph                WorkGraph       @relation(fields: [graphId], references: [id], onDelete: Cascade)
+  incomingDependencies WorkDependency[] @relation("DependencyTarget")
+  outgoingDependencies WorkDependency[] @relation("DependencySource")
+
+  @@unique([graphId, key])
+  @@index([graphId, status, createdAt])
+  @@index([status, riskLevel, createdAt])
+}
+
+model WorkDependency {
+  id         String   @id @default(cuid())
+  fromNodeId String
+  toNodeId   String
+  createdAt  DateTime @default(now())
+  fromNode   WorkNode @relation("DependencySource", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode     WorkNode @relation("DependencyTarget", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([fromNodeId, toNodeId])
+  @@index([toNodeId])
 }
