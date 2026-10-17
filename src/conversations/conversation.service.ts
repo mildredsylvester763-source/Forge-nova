@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
+import { SecretScannerService } from '../security/secret-scanner.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { CreateMessageDto } from './dto/create-message.dto';
 
@@ -9,6 +10,7 @@ export class ConversationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: AccessControlService,
+    private readonly secrets: SecretScannerService,
   ) {}
 
   async listForApplication(userId: string, applicationId: string) {
@@ -95,6 +97,7 @@ export class ConversationService {
       conversationId,
       this.access.writeRoles(),
     );
+    this.secrets.assertNoSecrets(dto.content);
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       select: { archivedAt: true },
