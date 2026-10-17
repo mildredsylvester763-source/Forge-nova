@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -57,7 +58,7 @@ export class ConversationController {
   ) {
     const parsedTake = take === undefined ? 100 : Number(take);
     if (!Number.isInteger(parsedTake) || parsedTake < 1 || parsedTake > 100) {
-      throw new Error('take must be an integer between 1 and 100.');
+      throw new BadRequestException('take must be an integer between 1 and 100.');
     }
     return this.conversations.listMessages(
       request.user.sub,
