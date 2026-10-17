@@ -23,11 +23,11 @@ export class GoogleAiProvider implements AiProvider {
     const model = input.model ?? this.defaultModel();
     if (!model) throw new AiProviderError('No Google AI model is configured for this request.', this.id, false);
     const timeoutMs = input.timeoutMs ?? this.config.get<number>('AI_PROVIDER_TIMEOUT_MS', 60_000);
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
     const { data, requestId } = await postProviderJson(
       this.id,
       url,
-      {},
+      { 'x-goog-api-key': apiKey },
       {
         systemInstruction: { parts: [{ text: input.systemPrompt }] },
         contents: [{ role: 'user', parts: [{ text: input.userPrompt }] }],
