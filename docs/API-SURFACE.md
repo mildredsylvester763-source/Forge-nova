@@ -47,6 +47,13 @@ All routes are under /api/v1. Routes marked authenticated require a bearer acces
 
 File writes reject unsafe paths, cap text size, preserve revision history, and scan for likely credentials. Binary asset storage is not implemented yet.
 
+## Application checkpoints
+- POST /api/v1/applications/:applicationId/checkpoints — capture application metadata and source-file revision references.
+- GET /api/v1/applications/:applicationId/checkpoints — list checkpoints without exposing the full manifest.
+- POST /api/v1/applications/:applicationId/checkpoints/:checkpointId/restore — restore the checkpoint atomically by creating new file revisions; unrelated newer files are soft-deleted rather than physically removed.
+
+The initial checkpoint implementation is limited to 500 source-file records per application and 1 MB of manifest metadata. Source revisions are retained because checkpoints depend on them.
+
 ## AI source generation
 - POST /api/v1/applications/:applicationId/generate — enqueue a source-generation job. Body: prompt and idempotencyKey. The worker validates the AI's JSON output, scans generated content, and atomically applies the multi-file batch with revision checks.
 - GET /api/v1/applications/:applicationId/jobs/:jobId — inspect progress and result.
