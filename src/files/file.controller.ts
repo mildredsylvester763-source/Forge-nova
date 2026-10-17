@@ -14,6 +14,7 @@ import { Request } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WriteFileDto } from './dto/write-file.dto';
+import { RestoreFileDto } from './dto/restore-file.dto';
 import { FileService } from './file.service';
 
 type AuthenticatedRequest = Request & { user: AuthenticatedUser };
@@ -64,17 +65,14 @@ export class FileController {
     @Param('applicationId') applicationId: string,
     @Param('fileId') fileId: string,
     @Param('revision', ParseIntPipe) revision: number,
-    @Body() body: { expectedCurrentRevision?: number },
+    @Body() body: RestoreFileDto,
   ) {
-    if (!Number.isInteger(body.expectedCurrentRevision) || (body.expectedCurrentRevision ?? 0) < 1) {
-      throw new BadRequestException('expectedCurrentRevision must be a positive integer.');
-    }
     return this.files.restore(
       request.user.sub,
       applicationId,
       fileId,
       revision,
-      body.expectedCurrentRevision as number,
+      body.expectedCurrentRevision,
     );
   }
 
