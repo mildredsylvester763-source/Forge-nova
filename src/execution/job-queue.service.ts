@@ -70,9 +70,7 @@ export class JobQueueService {
               cancelRequestedAt: null,
             },
           });
-          if (reset.count === 1) {
-            return this.prisma.workJob.findUniqueOrThrow({ where: { id: existing.id } });
-          }
+          return this.prisma.workJob.findUniqueOrThrow({ where: { id: existing.id } });
         }
         return existing;
       }
