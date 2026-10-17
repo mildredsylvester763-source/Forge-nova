@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { AuthenticatedUser } from './auth.types';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -22,24 +23,28 @@ type AuthenticatedRequest = Request & { user: AuthenticatedUser };
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   register(@Body() dto: RegisterDto, @Req() request: Request) {
     return this.auth.register(dto, request);
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto, @Req() request: Request) {
     return this.auth.login(dto, request);
   }
 
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   refresh(@Body() dto: RefreshDto, @Req() request: Request) {
     return this.auth.refresh(dto.refreshToken, request);
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   logout(@Body() dto: RefreshDto, @Req() request: Request) {
