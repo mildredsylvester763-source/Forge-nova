@@ -124,6 +124,7 @@ export class CodeGenerationJobHandler implements ExecutionJobHandler {
 
     const generated = parseGeneratedSource(result.text);
     this.secrets.assertNoSecrets(JSON.stringify(generated));
+    if (signal.aborted) throw new BadRequestException('Source generation was cancelled before file persistence.');
     const expectedRevisions = Object.fromEntries(
       existingFiles.map((file) => [file.path, file.revision]),
     );
