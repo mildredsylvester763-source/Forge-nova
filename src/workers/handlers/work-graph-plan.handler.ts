@@ -10,7 +10,11 @@ export class WorkGraphPlanJobHandler implements ExecutionJobHandler {
   constructor(private readonly planner: WorkGraphPlannerService) {}
 
   async execute(job: WorkJob, signal: AbortSignal): Promise<Prisma.InputJsonValue> {
-    const input = job.input as Record<string, unknown>;
+    const value = job.input;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new BadRequestException('Requirements-analysis job payload must be an object.');
+    }
+    const input = value as Record<string, unknown>;
     if (
       input.task !== 'PLAN_WORK_GRAPH' ||
       typeof input.graphId !== 'string' ||
