@@ -5,7 +5,7 @@ import {
   Injectable,
   PayloadTooLargeException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { JobStatus, Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { AccessControlService } from '../authorization/access-control.service';
 import { normalizeApplicationPath } from '../common/source/path-safety';
@@ -36,6 +36,7 @@ export class ApplicationSourceService {
     files: GeneratedSourceFile[],
     expectedRevisions: Record<string, number>,
     signal?: AbortSignal,
+    jobId?: string,
   ) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
     if (files.length < 1 || files.length > MAX_GENERATED_FILES) {
@@ -88,6 +89,18 @@ export class ApplicationSourceService {
           select: { id: true },
         });
         if (!membership) throw new ForbiddenException('Write access was revoked before source persistence.');
+        if (jobId) {
+          const activeJob = await tx.workJob.findFirst({
+            where: {
+              id: jobId,
+              applicationId,
+              status: JobStatus.RUNNING,
+              cancelRequestedAt: null,
+            },
+            select: { id: true },
+          });
+          if (!activeJob) throw new ConflictException('The generation job is no longer active; no source files were applied.');
+        }
 
         const results: Array<{
           id: string;
@@ -176,6 +189,18 @@ export class ApplicationSourceService {
         }
 
         if (signal?.aborted) throw new ConflictException('Source generation was cancelled before commit; the batch was rolled back.');
+        if (jobId) {
+          const stillActive = await tx.workJob.findFirst({
+            where: {
+              id: jobId,
+              applicationId,
+              status: JobStatus.RUNNING,
+              cancelRequestedAt: null,
+            },
+            select: { id: true },
+          });
+          if (!stillActive) throw new ConflictException('The generation job was cancelled; the source batch was rolled back.');
+        }
         return {
           applicationId,
           filesApplied: results.length,
