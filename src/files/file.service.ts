@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { AccessControlService } from '../authorization/access-control.service';
 import { normalizeApplicationPath } from '../common/source/path-safety';
 import { PrismaService } from '../database/prisma.service';
+import { SecretScannerService } from '../security/secret-scanner.service';
 import { WriteFileDto } from './dto/write-file.dto';
 
 const MAX_FILE_BYTES = 1_000_000;
@@ -18,6 +19,7 @@ export class FileService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: AccessControlService,
+    private readonly secrets: SecretScannerService,
   ) {}
 
   async list(userId: string, applicationId: string) {
@@ -62,6 +64,7 @@ export class FileService {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
     const path = normalizeApplicationPath(dto.path);
     const content = dto.content;
+    this.secrets.assertNoSecrets(content);
     if (Buffer.byteLength(content, 'utf8') > MAX_FILE_BYTES) {
       throw new PayloadTooLargeException('A source file cannot exceed 1 MB in UTF-8.');
     }
