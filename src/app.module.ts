@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { AuthorizationModule } from './authorization/authorization.module';
@@ -12,6 +14,7 @@ import { validateEnvironment } from './common/config/env.validation';
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
@@ -26,5 +29,6 @@ import { validateEnvironment } from './common/config/env.validation';
     ConversationModule,
     HealthModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
