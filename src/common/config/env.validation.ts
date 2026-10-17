@@ -25,6 +25,9 @@ const environmentSchema = z.object({
   MISTRAL_DEFAULT_MODEL: z.string().min(1).optional(),
   AI_PROVIDER_TIMEOUT_MS: z.coerce.number().int().min(1000).max(180000).default(60000),
   AI_PROVIDER_PRIORITY: z.string().default('openai,anthropic,google,mistral'),
+  EXECUTION_WORKER_ENABLED: z.enum(['true', 'false']).transform((value) => value === 'true').default('true'),
+  EXECUTION_WORKER_POLL_MS: z.coerce.number().int().min(250).max(10000).default(1000),
+  EXECUTION_WORKER_LEASE_MS: z.coerce.number().int().min(10000).max(300000).default(60000),
 });
 
 export type AppEnvironment = z.infer<typeof environmentSchema>;
