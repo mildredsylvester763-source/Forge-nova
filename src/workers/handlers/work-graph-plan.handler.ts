@@ -23,7 +23,7 @@ export class WorkGraphPlanJobHandler implements ExecutionJobHandler {
       throw new BadRequestException('Requirements-analysis job payload is invalid.');
     }
 
-    const graph = await this.planner.plan(input.requestedBy, input.graphId, signal);
+    const graph = await this.planner.plan(input.requestedBy, input.graphId, signal, job.id);
     return {
       graphId: graph.id,
       applicationId: graph.applicationId,
