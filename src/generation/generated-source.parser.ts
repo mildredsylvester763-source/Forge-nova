@@ -16,7 +16,7 @@ const generatedSourceSchema = z.object({
 export type ParsedGeneratedSource = z.infer<typeof generatedSourceSchema>;
 
 export function parseGeneratedSource(text: string): ParsedGeneratedSource {
-  const jsonText = text.trim().replace(/^\`\`\`(?:json)?\s*/i, '').replace(/\s*\`\`\`$/, '');
+  const jsonText = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   let decoded: unknown;
   try {
     decoded = JSON.parse(jsonText);
