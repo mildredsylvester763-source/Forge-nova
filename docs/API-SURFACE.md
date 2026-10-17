@@ -52,9 +52,15 @@ File writes reject unsafe paths, cap text size, preserve revision history, and s
 - GET /api/v1/work-graphs/:graphId — read a graph and its dependencies.
 - POST /api/v1/work-graphs/:graphId/nodes — add a dependency-ordered node.
 - GET /api/v1/work-graphs/:graphId/validate — validate graph cycles and inspect currently ready nodes.
-- POST /api/v1/work-graphs/:graphId/plan — call a configured AI provider, validate the returned plan, and atomically persist nodes and dependency edges.
+- POST /api/v1/work-graphs/:graphId/plan — enqueue an idempotent background planning job and return its job ID. The worker calls a configured AI provider, validates the plan, and atomically persists nodes and dependency edges.
 
 Planning requires a server-side AI provider key and default model. If none is configured, the route returns an explicit service-unavailable error; it does not fabricate a plan.
+
+## Background jobs
+- GET /api/v1/applications/:applicationId/jobs/:jobId — read job status/result without exposing worker leases or raw provider errors.
+- POST /api/v1/applications/:applicationId/jobs/:jobId/cancel — cancel a queued job or request cooperative cancellation of a running job.
+
+The worker currently has a concrete handler for work-graph planning. Other job types remain unavailable until their handlers and isolated execution environments are implemented.
 
 ## Internal services not exposed as public routes yet
 - AI provider registry and model router.
