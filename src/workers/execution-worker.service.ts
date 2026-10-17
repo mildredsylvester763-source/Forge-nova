@@ -22,6 +22,7 @@ export class ExecutionWorker implements OnModuleInit, OnModuleDestroy {
   private stopped = false;
   private currentController?: AbortController;
   private loopPromise?: Promise<void>;
+  private failureBackoffMs = 1000;
 
   constructor(
     private readonly jobs: JobQueueService,
@@ -52,6 +53,7 @@ export class ExecutionWorker implements OnModuleInit, OnModuleDestroy {
     while (!this.stopped) {
       try {
         const job = await this.jobs.claimNext(this.workerId, this.leaseMs);
+        this.failureBackoffMs = this.pollMs;
         if (!job) {
           await this.sleep(this.pollMs);
           continue;
@@ -62,7 +64,8 @@ export class ExecutionWorker implements OnModuleInit, OnModuleDestroy {
           'Execution worker loop encountered an error.',
           error instanceof Error ? error.name : 'UnknownError',
         );
-        await this.sleep(this.pollMs);
+        await this.sleep(this.failureBackoffMs + Math.floor(Math.random() * 250));
+        this.failureBackoffMs = Math.min(30_000, this.failureBackoffMs * 2);
       }
     }
   }
