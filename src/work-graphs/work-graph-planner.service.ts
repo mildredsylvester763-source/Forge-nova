@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, WorkGraphStatus, WorkNodeStatus, WorkNodeType, WorkRiskLevel } from '@prisma/client';
+import { JobStatus, Prisma, WorkGraphStatus, WorkNodeStatus, WorkNodeType, WorkRiskLevel } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { AiRouterService } from '../ai/ai-router.service';
 import { AccessControlService } from '../authorization/access-control.service';
@@ -22,7 +22,7 @@ export class WorkGraphPlannerService {
     private readonly secrets: SecretScannerService,
   ) {}
 
-  async plan(userId: string, graphId: string, signal?: AbortSignal) {
+  async plan(userId: string, graphId: string, signal?: AbortSignal, jobId?: string) {
     await this.access.requireWorkGraphRole(userId, graphId, this.access.writeRoles());
     const graph = await this.prisma.workGraph.findUnique({
       where: { id: graphId },
@@ -132,6 +132,18 @@ export class WorkGraphPlannerService {
           select: { id: true, applicationId: true },
         });
         if (!locked) throw new ConflictException('The planning lease expired or was replaced; no plan was saved.');
+        if (jobId) {
+          const activeJob = await tx.workJob.findFirst({
+            where: {
+              id: jobId,
+              applicationId: graph.applicationId,
+              status: JobStatus.RUNNING,
+              cancelRequestedAt: null,
+            },
+            select: { id: true },
+          });
+          if (!activeJob) throw new ConflictException('The planning job is no longer active; no plan was saved.');
+        }
 
         const root = await tx.workNode.findFirst({
           where: { graphId, key: 'user-request' },
@@ -173,6 +185,18 @@ export class WorkGraphPlannerService {
         await tx.workDependency.createMany({ data: edges });
 
         if (signal?.aborted) throw new ConflictException('Work graph planning was cancelled before commit.');
+        if (jobId) {
+          const stillActive = await tx.workJob.findFirst({
+            where: {
+              id: jobId,
+              applicationId: graph.applicationId,
+              status: JobStatus.RUNNING,
+              cancelRequestedAt: null,
+            },
+            select: { id: true },
+          });
+          if (!stillActive) throw new ConflictException('The planning job was cancelled; the plan was rolled back.');
+        }
         const updated = await tx.workGraph.update({
           where: { id: graphId },
           data: {
