@@ -208,7 +208,6 @@ export class JobQueueService {
 
     const shouldRetry = retryable && job.attemptCount < job.maxAttempts;
     const now = new Date();
-    const now = new Date();
     const updated = await this.prisma.workJob.updateMany({
       where: { id: jobId, status: JobStatus.RUNNING, lockedBy: workerId, leaseExpiresAt: { gt: now } },
       data: {
