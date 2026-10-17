@@ -134,6 +134,7 @@ export class CodeGenerationJobHandler implements ExecutionJobHandler {
       generated.files,
       expectedRevisions,
       signal,
+      job.id,
     );
 
     return {
