@@ -50,7 +50,7 @@ describe('AiRouterService', () => {
     expect(result.provider).toBe('anthropic');
     expect(result.text).toBe('verified response');
     expect(result.meteringCallId).toBeTruthy();
-    expect(meter.record).toHaveBeenCalledTimes(3);
+    expect(meter.record).toHaveBeenCalledTimes(6);
   });
 
   it('requires application scope before making a provider call', async () => {
