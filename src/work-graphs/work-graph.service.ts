@@ -58,7 +58,7 @@ export class WorkGraphService {
             type: WorkNodeType.REQUIREMENT,
             title: 'Original user request',
             description: dto.sourcePrompt.trim(),
-            status: WorkNodeStatus.SUCCEEDED,
+            status: WorkNodeStatus.RECORDED,
             riskLevel: WorkRiskLevel.LOW,
             requiresApproval: false,
             input: { prompt: dto.sourcePrompt.trim() },
