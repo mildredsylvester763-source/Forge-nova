@@ -10,9 +10,9 @@ export function normalizeApplicationPath(input: string): string {
   }
   if (
     value.startsWith('/') ||
-    value.startsWith('\\\\') ||
+    value.startsWith(String.fromCharCode(92)) ||
     /^[a-zA-Z]:/.test(value) ||
-    value.includes('\\\\') ||
+    value.includes(String.fromCharCode(92)) ||
     /[\u0000-\u001f\u007f]/.test(value)
   ) {
     throw new BadRequestException('Absolute paths, backslashes, and control characters are not allowed.');
