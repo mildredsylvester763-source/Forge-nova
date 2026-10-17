@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
@@ -30,6 +31,7 @@ export class AuthService {
 
   async register(dto: RegisterDto, request: Request) {
     const email = dto.email.trim().toLowerCase();
+    this.assertBcryptCompatiblePassword(dto.password);
     const passwordHash = await hash(dto.password, 12);
     const displayName = dto.displayName?.trim() || email.split('@')[0];
     const localPart = email.split('@')[0] ?? 'user';
@@ -54,7 +56,7 @@ export class AuthService {
             name: `${displayName}'s Organization`,
             slug: organizationSlug,
             memberships: {
-              create: { userId: createdUser.id, role: 'OWNER' },
+              create: { role: 'OWNER', user: { connect: { id: createdUser.id } } },
             },
             workspaces: {
               create: { name: 'Personal Workspace', slug: 'personal' },
@@ -94,6 +96,9 @@ export class AuthService {
 
   async login(dto: LoginDto, request: Request) {
     const email = dto.email.trim().toLowerCase();
+    if (Buffer.byteLength(dto.password, 'utf8') > 72) {
+      throw new UnauthorizedException('Email or password is incorrect.');
+    }
     const user = await this.prisma.user.findUnique({
       where: { email },
       select: { id: true, email: true, displayName: true, passwordHash: true, status: true },
@@ -283,6 +288,13 @@ export class AuthService {
 
   private refreshExpiry(): Date {
     return new Date(Date.now() + this.refreshTokenTtlDays * 24 * 60 * 60 * 1000);
+  }
+
+  private assertBcryptCompatiblePassword(password: string): void {
+    // bcrypt only considers the first 72 UTF-8 bytes; reject longer input rather than silently truncating it.
+    if (Buffer.byteLength(password, 'utf8') > 72) {
+      throw new BadRequestException('Password must be at most 72 bytes when encoded as UTF-8.');
+    }
   }
 
   private hashToken(token: string): string {
