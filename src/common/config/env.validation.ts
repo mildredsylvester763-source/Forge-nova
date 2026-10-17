@@ -5,10 +5,16 @@ const environmentSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   API_PREFIX: z.string().regex(/^[a-zA-Z0-9_-]+$/).default('api'),
   API_VERSION: z.coerce.number().int().positive().default(1),
-  DATABASE_URL: z.string().url().or(z.string().startsWith('postgresql://')).or(z.string().startsWith('postgres://')),
+  DATABASE_URL: z.string().refine(
+    (value) => value.startsWith('postgresql://') || value.startsWith('postgres://'),
+    'must be a PostgreSQL connection URL',
+  ),
   DATABASE_POOL_TIMEOUT_SECONDS: z.coerce.number().int().positive().max(120).default(10),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   CORS_ORIGINS: z.string().default(''),
+  JWT_ACCESS_SECRET: z.string().min(32),
+  ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
 });
 
 export type AppEnvironment = z.infer<typeof environmentSchema>;
@@ -20,6 +26,13 @@ export function validateEnvironment(environment: NodeJS.ProcessEnv): AppEnvironm
       .map((issue) => `${issue.path.join('.') || 'environment'}: ${issue.message}`)
       .join('; ');
     throw new Error(`Invalid environment configuration: ${details}`);
+  }
+
+  if (
+    parsed.data.NODE_ENV === 'production' &&
+    parsed.data.JWT_ACCESS_SECRET.toLowerCase().includes('development')
+  ) {
+    throw new Error('JWT_ACCESS_SECRET must not contain a development placeholder in production.');
   }
 
   return parsed.data;
