@@ -356,7 +356,10 @@ export class JobQueueService {
         applicationId,
         type: JobType.REQUIREMENTS_ANALYSIS,
         status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] },
-        input: { path: ['graphId'], equals: graphId },
+        AND: [
+          { input: { path: ['graphId'], equals: graphId } },
+          { input: { path: ['task'], equals: 'PLAN_WORK_GRAPH' } },
+        ],
       },
       select: { id: true, applicationId: true, status: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
