@@ -49,6 +49,31 @@ export class JobQueueService {
         if (this.stableStringify(existing.input as Prisma.InputJsonValue) !== serialized || existing.type !== type) {
           throw new ConflictException('This idempotency key was already used for a different job payload.');
         }
+        if (existing.status === JobStatus.FAILED || existing.status === JobStatus.CANCELLED) {
+          const reset = await this.prisma.workJob.updateMany({
+            where: {
+              id: existing.id,
+              status: { in: [JobStatus.FAILED, JobStatus.CANCELLED] },
+            },
+            data: {
+              status: JobStatus.QUEUED,
+              result: Prisma.DbNull,
+              errorCode: null,
+              errorMessage: null,
+              attemptCount: 0,
+              reservedAt: null,
+              startedAt: null,
+              finishedAt: null,
+              lockedBy: null,
+              leaseExpiresAt: null,
+              heartbeatAt: null,
+              cancelRequestedAt: null,
+            },
+          });
+          if (reset.count === 1) {
+            return this.prisma.workJob.findUniqueOrThrow({ where: { id: existing.id } });
+          }
+        }
         return existing;
       }
     }
@@ -279,6 +304,19 @@ export class JobQueueService {
     }
 
     return { id: jobId, status: job.status, cancellationRequested: false };
+  }
+
+  async findActiveGraphPlanJob(applicationId: string, graphId: string) {
+    return this.prisma.workJob.findFirst({
+      where: {
+        applicationId,
+        type: JobType.REQUIREMENTS_ANALYSIS,
+        status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] },
+        input: { path: ['graphId'], equals: graphId },
+      },
+      select: { id: true, applicationId: true, status: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async getForUser(userId: string, applicationId: string, jobId: string) {
