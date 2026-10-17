@@ -69,19 +69,36 @@ enum AuditOutcome {
 }
 
 model User {
-  id              String       @id @default(cuid())
-  email           String       @unique
+  id              String        @id @default(cuid())
+  email           String        @unique
   emailVerifiedAt DateTime?
   displayName     String?
   passwordHash    String?
-  status          String       @default("ACTIVE")
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  status          String        @default("ACTIVE")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
   memberships     Membership[]
-  ownedProjects   Project[]    @relation("ProjectOwner")
-  auditEvents     AuditEvent[] @relation("AuditActor")
+  ownedProjects   Project[]     @relation("ProjectOwner")
+  auditEvents     AuditEvent[]  @relation("AuditActor")
+  sessions        AuthSession[]
 
   @@index([status, createdAt])
+}
+
+model AuthSession {
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String    @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  lastUsedAt       DateTime?
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime  @default(now())
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt, revokedAt])
 }
 
 model Organization {
