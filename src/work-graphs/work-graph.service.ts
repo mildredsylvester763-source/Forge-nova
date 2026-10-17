@@ -258,7 +258,7 @@ export class WorkGraphService {
         (node) =>
           node.status === WorkNodeStatus.PENDING &&
           node.incomingDependencies.every((edge) =>
-            statusById.get(edge.fromNodeId) === WorkNodeStatus.SUCCEEDED,
+            [WorkNodeStatus.SUCCEEDED, WorkNodeStatus.RECORDED].includes(statusById.get(edge.fromNodeId) as WorkNodeStatus),
           ),
       )
       .map((node) => ({ id: node.id, key: node.key }));
