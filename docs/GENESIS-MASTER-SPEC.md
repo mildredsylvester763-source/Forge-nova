@@ -107,3 +107,7 @@ Algorithm and engine names are tracked separately in docs/ENGINE-AND-ALGORITHM-R
 - No claims of successful builds, tests, deployments, or integrations without evidence.
 - Every feature must have a clear owner module, data model, authorization boundary, error behavior, and verification strategy.
 - Optimize for reliable user outcomes and maintainable generated software, not feature-count marketing.
+
+## 17. Initial source-generation implementation contract
+
+The initial backend source-generation route is asynchronous and application-scoped. It must validate the AI's structured file output, reject unsafe paths and likely credentials, compare expected file revisions, and apply all generated file changes atomically. It must preserve unrelated files and append immutable revision records. Generation is not build verification: until an isolated runtime exists, the platform must explicitly report that builds/tests were not run and must not claim deployment or functional success.
