@@ -1,0 +1,64 @@
+# Backend API surface
+
+All routes are under /api/v1. Routes marked authenticated require a bearer access token. This list documents current code paths; it does not imply the broader product roadmap is complete.
+
+## Health
+- GET /api/v1/health/live — process liveness.
+- GET /api/v1/health/ready — readiness including a PostgreSQL query.
+
+## Identity
+- POST /api/v1/auth/register — creates an account, owner organization, personal workspace, and session.
+- POST /api/v1/auth/login — authenticates an account and issues access/refresh tokens.
+- POST /api/v1/auth/refresh — rotates a one-time refresh token and its bound session.
+- POST /api/v1/auth/logout — revokes the refresh session; protected requests tied to it are then rejected.
+- GET /api/v1/auth/me — authenticated account profile.
+
+## Organizations and workspaces
+- GET /api/v1/organizations — list organizations the user belongs to.
+- POST /api/v1/organizations — create an organization, owner membership, and general workspace.
+- GET /api/v1/organizations/:organizationId/members — list members.
+- POST /api/v1/organizations/:organizationId/members — add an existing active GENESIS account with a non-owner role.
+- GET /api/v1/workspaces — list workspaces visible to the user.
+- POST /api/v1/workspaces — create a workspace for an organization where the user is an owner/admin.
+
+## Projects and applications
+- GET /api/v1/workspaces/:workspaceId/projects — list projects.
+- POST /api/v1/workspaces/:workspaceId/projects — create a project.
+- GET /api/v1/projects/:projectId — read a project and its applications.
+- PATCH /api/v1/projects/:projectId — update project name/description.
+- POST /api/v1/projects/:projectId/archive — archive a project without deleting its data.
+- GET /api/v1/projects/:projectId/applications — list applications.
+- POST /api/v1/projects/:projectId/applications — create an application.
+
+## Persistent conversations
+- GET /api/v1/applications/:applicationId/conversations — list conversations.
+- POST /api/v1/applications/:applicationId/conversations — create a conversation.
+- PATCH /api/v1/conversations/:conversationId/archive — archive a conversation independently from the application.
+- GET /api/v1/conversations/:conversationId/messages — read persisted messages.
+- POST /api/v1/conversations/:conversationId/messages — store a user message. This endpoint persists the message; it does not yet invoke the AI execution engine.
+
+## Source files
+- GET /api/v1/applications/:applicationId/files — list file metadata.
+- GET /api/v1/applications/:applicationId/files/:fileId — read source content.
+- POST /api/v1/applications/:applicationId/files — create/update a file with optimistic revision control.
+- GET /api/v1/applications/:applicationId/files/:fileId/revisions — list immutable revision metadata.
+- DELETE /api/v1/applications/:applicationId/files/:fileId/revision/:expectedRevision — soft-delete only if the expected revision matches.
+
+File writes reject unsafe paths, cap text size, preserve revision history, and scan for likely credentials. Binary asset storage is not implemented yet.
+
+## Work graphs
+- GET /api/v1/applications/:applicationId/work-graphs — list work graphs.
+- POST /api/v1/applications/:applicationId/work-graphs — create a draft graph preserving the original request.
+- GET /api/v1/work-graphs/:graphId — read a graph and its dependencies.
+- POST /api/v1/work-graphs/:graphId/nodes — add a dependency-ordered node.
+- GET /api/v1/work-graphs/:graphId/validate — validate graph cycles and inspect currently ready nodes.
+- POST /api/v1/work-graphs/:graphId/plan — call a configured AI provider, validate the returned plan, and atomically persist nodes and dependency edges.
+
+Planning requires a server-side AI provider key and default model. If none is configured, the route returns an explicit service-unavailable error; it does not fabricate a plan.
+
+## Internal services not exposed as public routes yet
+- AI provider registry and model router.
+- Durable job queue with worker leases, heartbeat, retry, cancellation and result-size limits.
+- Raw resource usage event ledger.
+
+These are internal services until worker execution, entitlements, authorization policy, and user-facing job semantics are implemented.
