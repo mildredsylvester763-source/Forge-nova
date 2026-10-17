@@ -1,5 +1,4 @@
-import { Injectable } from '@nestjs/common';
-import { MembershipRole } from '@prisma/client';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
@@ -68,7 +67,7 @@ export class ConversationService {
 
     const cursorDate = before ? new Date(before) : undefined;
     if (cursorDate && Number.isNaN(cursorDate.getTime())) {
-      throw new Error('Invalid message pagination cursor.');
+      throw new BadRequestException('Invalid message pagination cursor.');
     }
 
     const rows = await this.prisma.message.findMany({
@@ -101,7 +100,7 @@ export class ConversationService {
       select: { archivedAt: true },
     });
     if (!conversation || conversation.archivedAt) {
-      throw new Error('This conversation is archived or unavailable.');
+      throw new ConflictException('This conversation is archived or unavailable.');
     }
 
     return this.prisma.message.create({
