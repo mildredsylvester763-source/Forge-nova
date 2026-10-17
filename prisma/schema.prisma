@@ -1,0 +1,261 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  DEVELOPER
+  BILLING
+  VIEWER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+  DELETED
+}
+
+enum ApplicationStatus {
+  PLANNING
+  BUILDING
+  READY
+  DEPLOYED
+  DEGRADED
+  ARCHIVED
+}
+
+enum ConversationRole {
+  SYSTEM
+  USER
+  ASSISTANT
+  TOOL
+}
+
+enum JobStatus {
+  QUEUED
+  RESERVED
+  RUNNING
+  WAITING_FOR_APPROVAL
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  PAUSED
+}
+
+enum JobType {
+  REQUIREMENTS_ANALYSIS
+  CODE_GENERATION
+  CODE_MODIFICATION
+  BUILD
+  TEST
+  SECURITY_SCAN
+  DEPLOYMENT
+  RESEARCH
+  DATA_PROCESSING
+  MANAGED_OPERATION
+  API_TASK
+}
+
+enum AuditOutcome {
+  SUCCESS
+  DENIED
+  FAILURE
+}
+
+model User {
+  id              String       @id @default(cuid())
+  email           String       @unique
+  emailVerifiedAt DateTime?
+  displayName     String?
+  passwordHash    String?
+  status          String       @default("ACTIVE")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  memberships     Membership[]
+  ownedProjects   Project[]    @relation("ProjectOwner")
+  auditEvents     AuditEvent[] @relation("AuditActor")
+
+  @@index([status, createdAt])
+}
+
+model Organization {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  memberships Membership[]
+  workspaces  Workspace[]
+
+  @@index([name])
+}
+
+model Membership {
+  id             String         @id @default(cuid())
+  userId         String
+  organizationId String
+  role           MembershipRole @default(VIEWER)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId, role])
+}
+
+model Workspace {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  slug           String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  projects       Project[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, createdAt])
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  workspaceId String
+  ownerId     String
+  name        String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner       User          @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  applications Application[]
+
+  @@index([workspaceId, status, updatedAt])
+  @@index([ownerId, createdAt])
+}
+
+model Application {
+  id             String            @id @default(cuid())
+  projectId      String
+  name           String
+  description    String?
+  status         ApplicationStatus @default(PLANNING)
+  framework      String?
+  runtime        String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  conversations  Conversation[]
+  jobs           WorkJob[]
+  checkpoints    Checkpoint[]
+  deployments    Deployment[]
+
+  @@index([projectId, status, updatedAt])
+}
+
+model Conversation {
+  id            String       @id @default(cuid())
+  applicationId String
+  title         String?
+  archivedAt    DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  application   Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  messages      Message[]
+
+  @@index([applicationId, archivedAt, updatedAt])
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  conversationId String
+  role           ConversationRole
+  content        String           @db.Text
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+model Checkpoint {
+  id            String      @id @default(cuid())
+  applicationId String
+  label         String
+  sourceRef     String?
+  manifest      Json
+  createdBy     String?
+  createdAt     DateTime    @default(now())
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt])
+}
+
+model WorkJob {
+  id             String      @id @default(cuid())
+  applicationId  String
+  type           JobType
+  status         JobStatus   @default(QUEUED)
+  idempotencyKey String?
+  input          Json
+  result         Json?
+  errorCode      String?
+  errorMessage   String?     @db.Text
+  attemptCount   Int         @default(0)
+  reservedAt     DateTime?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, idempotencyKey])
+  @@index([status, createdAt])
+  @@index([applicationId, createdAt])
+}
+
+model Deployment {
+  id            String      @id @default(cuid())
+  applicationId String
+  environment   String
+  provider      String?
+  status        String      @default("PENDING")
+  sourceRef     String?
+  externalId    String?
+  url           String?
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, environment, createdAt])
+  @@index([status, createdAt])
+}
+
+model AuditEvent {
+  id             String       @id @default(cuid())
+  actorUserId    String?
+  organizationId String?
+  action         String
+  resourceType   String
+  resourceId     String?
+  outcome        AuditOutcome
+  requestId      String?
+  ipAddress      String?
+  userAgent      String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  actor          User?        @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([resourceType, resourceId, createdAt])
+  @@index([action, createdAt])
+}
