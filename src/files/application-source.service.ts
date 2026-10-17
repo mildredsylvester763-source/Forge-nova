@@ -42,6 +42,7 @@ export class ApplicationSourceService {
 
     const normalized = files.map((file) => {
       const path = normalizeApplicationPath(file.path);
+      if (file.content.includes('\u0000')) throw new BadRequestException('Source files cannot contain NUL bytes.');
       this.secrets.assertNoSecrets(file.content);
       const bytes = Buffer.byteLength(file.content, 'utf8');
       if (bytes > MAX_FILE_BYTES) {
