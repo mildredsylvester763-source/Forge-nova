@@ -59,7 +59,7 @@ The initial checkpoint implementation is limited to 500 source-file records per 
 - GET /api/v1/applications/:applicationId/jobs/:jobId — inspect progress and result.
 - POST /api/v1/applications/:applicationId/jobs/:jobId/cancel — request cancellation.
 
-Source generation does not claim that output builds or tests successfully. The job result explicitly reports build verification as NOT_RUN until an isolated build/test runner is implemented.
+Source generation does not claim that output builds or tests successfully. The worker parses TypeScript/JavaScript/JSON syntax without executing generated code and attempts one AI repair pass for malformed output or syntax errors. The job result explicitly reports build verification as NOT_RUN until an isolated build/test runner is implemented.
 
 ## Work graphs
 - GET /api/v1/applications/:applicationId/work-graphs — list work graphs.
