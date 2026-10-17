@@ -113,29 +113,31 @@ export class OrganizationService {
     }
 
     try {
-      const membership = await this.prisma.membership.create({
-        data: { organizationId, userId: target.id, role: dto.role },
-        select: {
-          id: true,
-          organizationId: true,
-          role: true,
-          createdAt: true,
-          user: { select: { id: true, email: true, displayName: true } },
-        },
-      });
+      return await this.prisma.$transaction(async (tx) => {
+        const membership = await tx.membership.create({
+          data: { organizationId, userId: target.id, role: dto.role },
+          select: {
+            id: true,
+            organizationId: true,
+            role: true,
+            createdAt: true,
+            user: { select: { id: true, email: true, displayName: true } },
+          },
+        });
 
-      await this.prisma.auditEvent.create({
-        data: {
-          actorUserId: userId,
-          organizationId,
-          action: 'organization.member.add',
-          resourceType: 'membership',
-          resourceId: membership.id,
-          outcome: 'SUCCESS',
-          metadata: { role: dto.role },
-        },
+        await tx.auditEvent.create({
+          data: {
+            actorUserId: userId,
+            organizationId,
+            action: 'organization.member.add',
+            resourceType: 'membership',
+            resourceId: membership.id,
+            outcome: 'SUCCESS',
+            metadata: { role: dto.role },
+          },
+        });
+        return membership;
       });
-      return membership;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('This account is already a member of the organization.');
