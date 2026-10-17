@@ -45,11 +45,13 @@ export class AccessControlService {
     applicationId: string,
     allowedRoles: MembershipRole[],
   ): Promise<{ id: string; projectId: string }> {
+    const readOnly = allowedRoles.includes(MembershipRole.VIEWER);
     const application = await this.prisma.application.findFirst({
       where: {
         id: applicationId,
+        ...(!readOnly ? { status: { not: 'ARCHIVED' } } : {}),
         project: {
-          status: 'ACTIVE',
+          status: readOnly ? { not: 'DELETED' } : 'ACTIVE',
           workspace: {
             organization: {
               memberships: { some: { userId, role: { in: allowedRoles } } },
@@ -68,12 +70,14 @@ export class AccessControlService {
     graphId: string,
     allowedRoles: MembershipRole[],
   ): Promise<{ id: string; applicationId: string; status: WorkGraphStatus }> {
+    const readOnly = allowedRoles.includes(MembershipRole.VIEWER);
     const graph = await this.prisma.workGraph.findFirst({
       where: {
         id: graphId,
         application: {
+          ...(!readOnly ? { status: { not: 'ARCHIVED' } } : {}),
           project: {
-            status: 'ACTIVE',
+            status: readOnly ? { not: 'DELETED' } : 'ACTIVE',
             workspace: {
               organization: {
                 memberships: { some: { userId, role: { in: allowedRoles } } },
@@ -93,12 +97,14 @@ export class AccessControlService {
     conversationId: string,
     allowedRoles: MembershipRole[],
   ): Promise<{ id: string; applicationId: string; archivedAt: Date | null }> {
+    const readOnly = allowedRoles.includes(MembershipRole.VIEWER);
     const conversation = await this.prisma.conversation.findFirst({
       where: {
         id: conversationId,
         application: {
+          ...(!readOnly ? { status: { not: 'ARCHIVED' } } : {}),
           project: {
-            status: 'ACTIVE',
+            status: readOnly ? { not: 'DELETED' } : 'ACTIVE',
             workspace: {
               organization: {
                 memberships: { some: { userId, role: { in: allowedRoles } } },
@@ -118,10 +124,11 @@ export class AccessControlService {
     projectId: string,
     allowedRoles: MembershipRole[],
   ): Promise<{ id: string; workspaceId: string; ownerId: string }> {
+    const readOnly = allowedRoles.includes(MembershipRole.VIEWER);
     const project = await this.prisma.project.findFirst({
       where: {
         id: projectId,
-        status: { not: 'DELETED' },
+        status: readOnly ? { not: 'DELETED' } : 'ACTIVE',
         workspace: {
           organization: {
             memberships: { some: { userId, role: { in: allowedRoles } } },
