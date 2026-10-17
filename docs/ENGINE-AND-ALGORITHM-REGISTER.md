@@ -144,3 +144,41 @@ This is the locked inventory of intended systems. Names identify planned respons
 
 ## Governance note
 Implement these in dependency order, not all at once. Each engine needs a defined contract, data ownership, failure semantics, authorization policy, observability, and tests. Do not create empty classes for every planned engine merely to claim progress.
+
+## Current implementation snapshot (source only)
+
+The following foundations have initial code in the repository; this is not a production-readiness certification:
+- Session-Bound Access Token Validation
+- Opaque Refresh Token Hashing and Rotation
+- Tenant Membership Authorization
+- Request Correlation ID Engine
+- HTTP Security Header and Request-Throttling Layer
+- Secret Pattern Scanner
+- Versioned Source File Store
+- Optimistic Revision Conflict Detection
+- Atomic Generated Source Batch Writer
+- Work Graph Schema and Dependency Validator
+- Work Graph Planning Lease and Recovery
+- Structured AI Plan Parser
+- Provider-Neutral AI Adapter Layer (OpenAI, Anthropic, Google AI, Mistral)
+- Configurable AI Provider Routing and Retryable Fallback
+- Raw AI Call/Input-Token/Output-Token Usage Metering
+- Durable PostgreSQL Job Claiming with SKIP LOCKED
+- Worker Lease, Heartbeat, Retry, and Cancellation Engine
+- Asynchronous Work-Graph Planning Handler
+- Asynchronous Source-Generation Handler
+
+## Next required engines before claiming end-to-end app creation
+
+- Isolated Runtime/Sandbox Engine
+- Framework-Aware Dependency Installation
+- Build Executor
+- Test Executor
+- Security Scan Executor
+- Generated Application Runtime Preview
+- Verification Evidence Store
+- Reference Asset Ingestion and Extraction
+- Application Checkpoint/Restore Beyond Individual File Revisions
+- Deployment Adapters and Release Verification
+
+The broader Custom API, data products, Managed Operations, hosting, marketplace, partnership, white-label, and economic systems remain product scope and are not yet implemented merely because their names appear above.
