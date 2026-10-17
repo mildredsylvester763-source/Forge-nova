@@ -177,6 +177,74 @@ export class FileService {
     });
   }
 
+  async restore(
+    userId: string,
+    applicationId: string,
+    fileId: string,
+    targetRevision: number,
+    expectedCurrentRevision: number,
+  ) {
+    await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.applicationFile.findFirst({
+        where: { id: fileId, applicationId },
+      });
+      if (!current) throw new NotFoundException('Application file not found.');
+      if (current.revision !== expectedCurrentRevision) {
+        throw new ConflictException({
+          message: 'The file changed since it was read.',
+          expectedRevision: expectedCurrentRevision,
+          currentRevision: current.revision,
+        });
+      }
+
+      const target = await tx.fileRevision.findFirst({
+        where: { fileId, revision: targetRevision },
+      });
+      if (!target) throw new NotFoundException('The requested file revision was not found.');
+      this.secrets.assertNoSecrets(target.content);
+      if (Buffer.byteLength(target.content, 'utf8') > MAX_FILE_BYTES) {
+        throw new PayloadTooLargeException('A source file cannot exceed 1 MB in UTF-8.');
+      }
+
+      const nextRevision = current.revision + 1;
+      const changed = await tx.applicationFile.updateMany({
+        where: { id: current.id, revision: current.revision },
+        data: {
+          content: target.content,
+          contentHash: target.contentHash,
+          language: current.language,
+          revision: nextRevision,
+          isDeleted: false,
+          updatedAt: new Date(),
+        },
+      });
+      if (changed.count !== 1) {
+        throw new ConflictException('The file changed concurrently; read it again before retrying.');
+      }
+
+      await tx.fileRevision.create({
+        data: {
+          fileId: current.id,
+          revision: nextRevision,
+          content: target.content,
+          contentHash: target.contentHash,
+          isDeleted: false,
+          createdBy: userId,
+        },
+      });
+      return {
+        id: current.id,
+        applicationId,
+        path: current.path,
+        revision: nextRevision,
+        restoredFromRevision: targetRevision,
+        contentHash: target.contentHash,
+        isDeleted: false,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
   async delete(userId: string, applicationId: string, fileId: string, expectedRevision: number) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
     return this.prisma.$transaction(async (tx) => {
