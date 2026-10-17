@@ -161,6 +161,8 @@ The following foundations have initial code in the repository; this is not a pro
 - Work Graph Schema and Dependency Validator
 - Work Graph Planning Lease and Recovery
 - Structured AI Plan Parser
+- Non-Executing Source Syntax Validator
+- Single-Pass AI Source Repair Engine
 - Provider-Neutral AI Adapter Layer (OpenAI, Anthropic, Google AI, Mistral)
 - Configurable AI Provider Routing and Retryable Fallback
 - Raw AI Call/Input-Token/Output-Token Usage Metering
