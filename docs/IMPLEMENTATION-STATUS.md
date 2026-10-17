@@ -11,7 +11,7 @@ This document separates source code that exists from planned capabilities that h
 - Persistent project conversations and user messages, separated from application lifecycle.
 - Text source file storage with immutable revision history, restore, optimistic concurrency, safe path validation, and high-confidence secret scanning.
 - Application checkpoints that snapshot app metadata and source revision references, then restore atomically while preserving history and soft-deleting post-checkpoint files.
-- Asynchronous AI source generation with structured-output validation, provider routing, atomic multi-file writes, conflict detection, secret/path checks, and honest NOT_RUN build-verification status.
+- Asynchronous AI source generation with structured-output validation, provider routing, non-executing TypeScript/JavaScript/JSON syntax checks, one metered repair attempt, atomic multi-file writes, conflict detection, secret/path checks, and honest NOT_RUN build-verification status.
 - Work graph and node/dependency persistence, cycle validation, ready-node analysis, and recoverable AI planning leases.
 - Provider-neutral adapters for OpenAI, Anthropic, Google AI, and Mistral; configurable routing/fallback; provider response normalization; and raw token/call usage metering.
 - Internal durable job queue with atomic PostgreSQL claiming, worker leases, heartbeats, retry handling, cooperative cancellation, completion/failure recording, and authenticated job-status/cancel routes.
