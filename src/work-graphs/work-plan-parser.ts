@@ -18,7 +18,7 @@ const planSchema = z.object({
 export type ParsedWorkPlan = z.infer<typeof planSchema>;
 
 export function parseWorkPlan(text: string): ParsedWorkPlan {
-  const jsonText = text.trim().replace(/^\`\`\`(?:json)?\s*/i, '').replace(/\s*\`\`\`$/, '');
+  const jsonText = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   let decoded: unknown;
   try {
     decoded = JSON.parse(jsonText);
