@@ -5,7 +5,7 @@ import { AuthorizationModule } from './authorization/authorization.module';
 import { WorkspaceModule } from './workspaces/workspace.module';
 import { ProjectModule } from './projects/project.module';
 import { ApplicationModule } from './applications/application.module';
-import { ConversationModule } from './conversations/conversation.module';
+import { ConversationModule } from './conversations/conversation.module';\nimport { FileModule } from './files/file.module';
 import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
 import { validateEnvironment } from './common/config/env.validation';
