@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
+import { SecretScannerService } from '../security/secret-scanner.service';
 import { CreateWorkGraphDto } from './dto/create-work-graph.dto';
 import { CreateWorkNodeDto } from './dto/create-work-node.dto';
 
@@ -21,6 +22,7 @@ export class WorkGraphService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: AccessControlService,
+    private readonly secrets: SecretScannerService,
   ) {}
 
   async listForApplication(userId: string, applicationId: string) {
@@ -43,6 +45,7 @@ export class WorkGraphService {
 
   async create(userId: string, applicationId: string, dto: CreateWorkGraphDto) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    this.secrets.assertNoSecrets(dto.sourcePrompt);
     return this.prisma.workGraph.create({
       data: {
         applicationId,
@@ -132,6 +135,7 @@ export class WorkGraphService {
 
     const inputJson = dto.input ?? {};
     const serializedInput = JSON.stringify(inputJson);
+    this.secrets.assertNoSecrets(serializedInput);
     if (Buffer.byteLength(serializedInput, 'utf8') > 65536) {
       throw new BadRequestException('A work node input cannot exceed 64 KB.');
     }
