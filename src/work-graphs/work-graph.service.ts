@@ -191,7 +191,7 @@ export class WorkGraphService {
 
         await tx.workGraph.update({
           where: { id: graphId },
-          data: { version: { increment: 1 }, status: WorkGraphStatus.DRAFT },
+          data: { version: { increment: 1 }, status: graph.status },
         });
         return node;
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
