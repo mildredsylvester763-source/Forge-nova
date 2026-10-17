@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 
@@ -21,16 +21,16 @@ export class ResourceMeterService {
 
   async record(input: RecordResourceUsageInput) {
     if (!Number.isFinite(input.quantity) || input.quantity < 0 || input.quantity > 1e15) {
-      throw new ConflictException('Resource quantity must be a finite non-negative measurement.');
+      throw new BadRequestException('Resource quantity must be a finite non-negative measurement.');
     }
     if (!/^[a-zA-Z0-9._:-]{2,100}$/.test(input.eventType)) {
-      throw new ConflictException('Resource event type is invalid.');
+      throw new BadRequestException('Resource event type is invalid.');
     }
     if (!/^[a-zA-Z0-9._/-]{1,40}$/.test(input.unit)) {
-      throw new ConflictException('Resource unit is invalid.');
+      throw new BadRequestException('Resource unit is invalid.');
     }
     if (input.idempotencyKey && !/^[a-zA-Z0-9._:-]{8,128}$/.test(input.idempotencyKey)) {
-      throw new ConflictException('Resource idempotency key is invalid.');
+      throw new BadRequestException('Resource idempotency key is invalid.');
     }
 
     if (input.jobId) {
@@ -43,7 +43,7 @@ export class ResourceMeterService {
 
     const dimensions = input.dimensions ?? {};
     if (Buffer.byteLength(JSON.stringify(dimensions), 'utf8') > 32768) {
-      throw new ConflictException('Resource event dimensions cannot exceed 32 KB.');
+      throw new BadRequestException('Resource event dimensions cannot exceed 32 KB.');
     }
 
     if (input.idempotencyKey) {
