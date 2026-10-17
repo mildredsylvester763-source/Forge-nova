@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
+import { normalizeApplicationPath } from '../common/source/path-safety';
 import { SecretScannerService } from '../security/secret-scanner.service';
 
 const MAX_CHECKPOINT_FILES = 500;
@@ -154,10 +155,23 @@ export class CheckpointService {
           throw new ConflictException('Checkpoint manifest is invalid or uses an unsupported schema version.');
         }
         const manifest = parsed.data;
+        const ids = manifest.files.map((file) => file.id);
+        const paths = manifest.files.map((file) => file.path);
+        if (new Set(ids).size !== ids.length || new Set(paths).size !== paths.length) {
+          throw new ConflictException('Checkpoint manifest contains duplicate file identities or paths.');
+        }
+        for (const file of manifest.files) {
+          if (normalizeApplicationPath(file.path) !== file.path) {
+            throw new ConflictException('Checkpoint manifest contains an unsafe or non-canonical file path.');
+          }
+        }
         const currentFiles = await tx.applicationFile.findMany({
           where: { applicationId },
           orderBy: { path: 'asc' },
         });
+        if (currentFiles.length > MAX_CHECKPOINT_FILES) {
+          throw new ConflictException('Application exceeds the initial checkpoint restore file limit; no changes were applied.');
+        }
         const currentById = new Map(currentFiles.map((file) => [file.id, file]));
         const snapshotIds = new Set(manifest.files.map((file) => file.id));
         let changedFiles = 0;
