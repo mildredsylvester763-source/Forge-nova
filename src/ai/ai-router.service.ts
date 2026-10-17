@@ -36,7 +36,6 @@ export class AiRouterService {
       throw new BadRequestException('Specify a provider when selecting an exact model identifier.');
     }
 
-    const callId = randomUUID();
     const ordered = input.provider
       ? this.preferredOrder(input.provider)
       : this.registry.ordered();
@@ -56,34 +55,54 @@ export class AiRouterService {
     const attempts = allowFallback ? candidates : candidates.slice(0, 1);
     const failures: string[] = [];
     for (const provider of attempts) {
-      if (!provider.defaultModel() && !input.model) {
+      const model = input.model ?? provider.defaultModel();
+      if (!model) {
         failures.push(`${provider.id}: no default model configured`);
         continue;
       }
+
+      const attemptId = randomUUID();
+      const baseDimensions = {
+        operationId: input.operationId,
+        provider: provider.id,
+        model,
+      };
+
+      // Record the provider attempt before making a billable external request.
+      await this.meter.record({
+        applicationId: input.applicationId,
+        jobId: input.jobId,
+        eventType: 'ai.provider_attempts',
+        unit: 'calls',
+        quantity: 1,
+        provider: provider.id,
+        model,
+        dimensions: { ...baseDimensions, outcome: 'ATTEMPT' },
+        idempotencyKey: `ai:${attemptId}:attempt`,
+      });
+
       try {
         const result = await provider.complete({
           ...input,
           provider: provider.id,
-          model: input.model ?? provider.defaultModel(),
+          model,
           timeoutMs: input.timeoutMs ?? this.config.get<number>('AI_PROVIDER_TIMEOUT_MS', 60_000),
         });
 
         const dimensions = {
-          operationId: input.operationId,
-          provider: result.provider,
-          model: result.model,
+          ...baseDimensions,
           providerRequestId: result.providerRequestId ?? null,
         };
         await this.meter.record({
           applicationId: input.applicationId,
           jobId: input.jobId,
-          eventType: 'ai.completion_calls',
+          eventType: 'ai.completion_successes',
           unit: 'calls',
           quantity: 1,
           provider: result.provider,
           model: result.model,
           dimensions,
-          idempotencyKey: `ai:${callId}:calls`,
+          idempotencyKey: `ai:${attemptId}:success`,
         });
         if (result.usage.inputTokens !== undefined) {
           await this.meter.record({
@@ -95,7 +114,7 @@ export class AiRouterService {
             provider: result.provider,
             model: result.model,
             dimensions,
-            idempotencyKey: `ai:${callId}:input`,
+            idempotencyKey: `ai:${attemptId}:input`,
           });
         }
         if (result.usage.outputTokens !== undefined) {
@@ -108,13 +127,29 @@ export class AiRouterService {
             provider: result.provider,
             model: result.model,
             dimensions,
-            idempotencyKey: `ai:${callId}:output`,
+            idempotencyKey: `ai:${attemptId}:output`,
           });
         }
 
-        return { ...result, meteringCallId: callId };
+        return { ...result, meteringCallId: attemptId };
       } catch (error) {
         if (error instanceof AiProviderError) {
+          await this.meter.record({
+            applicationId: input.applicationId,
+            jobId: input.jobId,
+            eventType: 'ai.provider_failures',
+            unit: 'calls',
+            quantity: 1,
+            provider: provider.id,
+            model,
+            dimensions: {
+              ...baseDimensions,
+              outcome: 'FAILURE',
+              statusCode: error.statusCode ?? null,
+              retryable: error.retryable,
+            },
+            idempotencyKey: `ai:${attemptId}:failure`,
+          });
           failures.push(`${provider.id}: ${error.message}`);
           if (!allowFallback || !error.retryable) throw error;
           continue;
