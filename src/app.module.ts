@@ -15,6 +15,7 @@ import { ExecutionModule } from './execution/execution.module';
 import { AiModule } from './ai/ai.module';
 import { SecurityModule } from './security/security.module';
 import { WorkerModule } from './workers/worker.module';
+import { GenerationModule } from './generation/generation.module';
 import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
 import { validateEnvironment } from './common/config/env.validation';
@@ -41,6 +42,7 @@ import { validateEnvironment } from './common/config/env.validation';
     AiModule,
     SecurityModule,
     WorkerModule,
+    GenerationModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
