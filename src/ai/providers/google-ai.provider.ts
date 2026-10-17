@@ -37,6 +37,7 @@ export class GoogleAiProvider implements AiProvider {
         },
       },
       timeoutMs,
+      input.signal,
     );
     const text = requireText(
       data.candidates?.[0]?.content?.parts
