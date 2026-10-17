@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -64,6 +65,7 @@ export class FileService {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
     const path = normalizeApplicationPath(dto.path);
     const content = dto.content;
+    if (content.includes('\u0000')) throw new BadRequestException('Source files cannot contain NUL bytes.');
     this.secrets.assertNoSecrets(content);
     if (Buffer.byteLength(content, 'utf8') > MAX_FILE_BYTES) {
       throw new PayloadTooLargeException('A source file cannot exceed 1 MB in UTF-8.');
