@@ -36,3 +36,11 @@ This roadmap describes intended work, not completed functionality. Frontend deve
 17. Scale and resilience: queues, concurrency limits, tenant isolation, caching, observability, backups, disaster recovery, load testing and operational runbooks.
 
 The order can be adjusted when dependencies or measured engineering constraints justify it. The scope must not be silently discarded.
+
+## Current source-code checkpoint
+
+The current backend source includes the initial NestJS/PostgreSQL foundation, session-bound authentication, organization/workspace/project/application APIs, persistent conversations, versioned text files, AI provider adapters, raw usage metering, a durable job queue/worker, work-graph planning, and asynchronous AI source generation with atomic file writes.
+
+The current worker has concrete handlers for work-graph planning and source generation. It does not yet execute generated applications in a sandbox, run real builds/tests/security scans, deploy applications, or perform Managed Operations. Those are explicit upcoming phases, not hidden behind simulated success states.
+
+The GitHub Actions workflow is configured to install dependencies, generate/validate Prisma, apply the migration to a clean PostgreSQL service, check schema drift, type-check, test, and build. Until an actual run result is inspected, no passing build/test status is claimed.
