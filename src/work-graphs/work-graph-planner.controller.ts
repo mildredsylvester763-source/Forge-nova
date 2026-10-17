@@ -24,6 +24,16 @@ export class WorkGraphPlannerController {
       graphId,
       this.access.writeRoles(),
     );
+    const activeJob = await this.jobs.findActiveGraphPlanJob(graph.applicationId, graphId);
+    if (activeJob) {
+      return {
+        jobId: activeJob.id,
+        applicationId: activeJob.applicationId,
+        status: activeJob.status,
+        createdAt: activeJob.createdAt,
+      };
+    }
+
     if (graph.status !== WorkGraphStatus.DRAFT) {
       throw new ConflictException('Only draft work graphs can be queued for planning.');
     }
