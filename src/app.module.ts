@@ -12,6 +12,7 @@ import { FileModule } from './files/file.module';
 import { WorkGraphModule } from './work-graphs/work-graph.module';
 import { OrganizationModule } from './organizations/organization.module';
 import { ExecutionModule } from './execution/execution.module';
+import { AiModule } from './ai/ai.module';
 import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
 import { validateEnvironment } from './common/config/env.validation';
@@ -35,6 +36,7 @@ import { validateEnvironment } from './common/config/env.validation';
     WorkGraphModule,
     OrganizationModule,
     ExecutionModule,
+    AiModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
