@@ -12,7 +12,7 @@ async function bootstrap(): Promise<void> {
     abortOnError: false,
   });
 
-  app.setGlobalPrefix(process.env.API_PREFIX ?? 'api');
+  app.setGlobalPrefix(`${process.env.API_PREFIX ?? 'api'}/v${process.env.API_VERSION ?? '1'}`);
   app.enableShutdownHooks();
   app.useGlobalPipes(
     new ValidationPipe({
