@@ -10,7 +10,7 @@ const generatedFileSchema = z.object({
 
 const generatedSourceSchema = z.object({
   summary: z.string().trim().min(1).max(3000),
-  files: z.array(generatedFileSchema).min(1).max(40),
+  files: z.array(generatedFileSchema).min(1).max(30),
 }).strict();
 
 export type ParsedGeneratedSource = z.infer<typeof generatedSourceSchema>;
