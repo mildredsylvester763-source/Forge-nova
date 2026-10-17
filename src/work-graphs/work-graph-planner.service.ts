@@ -115,6 +115,19 @@ export class WorkGraphPlannerService {
             status: WorkGraphStatus.PLANNING,
             planningToken,
             planningLeaseExpiresAt: { gt: new Date() },
+            application: {
+              status: { not: 'ARCHIVED' },
+              project: {
+                status: 'ACTIVE',
+                workspace: {
+                  organization: {
+                    memberships: {
+                      some: { userId, role: { in: this.access.writeRoles() } },
+                    },
+                  },
+                },
+              },
+            },
           },
           select: { id: true, applicationId: true },
         });
