@@ -237,18 +237,24 @@ export class JobQueueService {
   ) {
     const job = await this.prisma.workJob.findFirst({
       where: { id: jobId, status: JobStatus.RUNNING, lockedBy: workerId },
-      select: { id: true, attemptCount: true, maxAttempts: true },
+      select: { id: true, attemptCount: true, maxAttempts: true, cancelRequestedAt: true },
     });
     if (!job) throw new ConflictException('Job is no longer leased by this worker.');
 
-    const shouldRetry = retryable && job.attemptCount < job.maxAttempts;
+    const cancellationRequested = job.cancelRequestedAt !== null;
+    const shouldRetry = !cancellationRequested && retryable && job.attemptCount < job.maxAttempts;
+    const finalStatus = cancellationRequested
+      ? JobStatus.CANCELLED
+      : shouldRetry
+        ? JobStatus.QUEUED
+        : JobStatus.FAILED;
     const now = new Date();
     const updated = await this.prisma.workJob.updateMany({
       where: { id: jobId, status: JobStatus.RUNNING, lockedBy: workerId, leaseExpiresAt: { gt: now } },
       data: {
-        status: shouldRetry ? JobStatus.QUEUED : JobStatus.FAILED,
-        errorCode: errorCode.slice(0, 100),
-        errorMessage: safeErrorMessage.slice(0, 2000),
+        status: finalStatus,
+        errorCode: cancellationRequested ? 'CANCELLED' : errorCode.slice(0, 100),
+        errorMessage: cancellationRequested ? 'Cancellation was requested while the job was running.' : safeErrorMessage.slice(0, 2000),
         finishedAt: shouldRetry ? null : now,
         lockedBy: null,
         leaseExpiresAt: null,
@@ -258,7 +264,7 @@ export class JobQueueService {
     if (updated.count !== 1) {
       throw new ConflictException('Job state changed while recording the failure.');
     }
-    return { id: jobId, status: shouldRetry ? JobStatus.QUEUED : JobStatus.FAILED };
+    return { id: jobId, status: finalStatus };
   }
 
   async acknowledgeCancellation(jobId: string, workerId: string) {
