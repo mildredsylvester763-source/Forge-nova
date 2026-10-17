@@ -219,3 +219,40 @@ ALTER TABLE "Deployment" ADD CONSTRAINT "Deployment_applicationId_fkey"
   FOREIGN KEY ("applicationId") REFERENCES "Application"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "AuditEvent" ADD CONSTRAINT "AuditEvent_actorUserId_fkey"
   FOREIGN KEY ("actorUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+CREATE TABLE "ApplicationFile" (
+  "id" TEXT NOT NULL,
+  "applicationId" TEXT NOT NULL,
+  "path" TEXT NOT NULL,
+  "language" TEXT,
+  "content" TEXT NOT NULL,
+  "contentHash" TEXT NOT NULL,
+  "revision" INTEGER NOT NULL DEFAULT 1,
+  "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+  "createdBy" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "ApplicationFile_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "FileRevision" (
+  "id" TEXT NOT NULL,
+  "fileId" TEXT NOT NULL,
+  "revision" INTEGER NOT NULL,
+  "content" TEXT NOT NULL,
+  "contentHash" TEXT NOT NULL,
+  "isDeleted" BOOLEAN NOT NULL DEFAULT false,
+  "createdBy" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "FileRevision_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX "ApplicationFile_applicationId_path_key" ON "ApplicationFile"("applicationId", "path");
+CREATE INDEX "ApplicationFile_applicationId_isDeleted_updatedAt_idx" ON "ApplicationFile"("applicationId", "isDeleted", "updatedAt");
+CREATE UNIQUE INDEX "FileRevision_fileId_revision_key" ON "FileRevision"("fileId", "revision");
+CREATE INDEX "FileRevision_fileId_createdAt_idx" ON "FileRevision"("fileId", "createdAt");
+
+ALTER TABLE "ApplicationFile" ADD CONSTRAINT "ApplicationFile_applicationId_fkey"
+  FOREIGN KEY ("applicationId") REFERENCES "Application"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "FileRevision" ADD CONSTRAINT "FileRevision_fileId_fkey"
+  FOREIGN KEY ("fileId") REFERENCES "ApplicationFile"("id") ON DELETE CASCADE ON UPDATE CASCADE;
