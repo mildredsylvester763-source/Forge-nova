@@ -173,6 +173,7 @@ model Application {
   jobs           WorkJob[]
   checkpoints    Checkpoint[]
   deployments    Deployment[]
+  files          ApplicationFile[]
 
   @@index([projectId, status, updatedAt])
 }
@@ -275,4 +276,38 @@ model AuditEvent {
   @@index([organizationId, createdAt])
   @@index([resourceType, resourceId, createdAt])
   @@index([action, createdAt])
+}
+
+model ApplicationFile {
+  id            String        @id @default(cuid())
+  applicationId String
+  path          String
+  language      String?
+  content       String        @db.Text
+  contentHash   String
+  revision      Int           @default(1)
+  isDeleted     Boolean       @default(false)
+  createdBy     String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  application   Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  revisions     FileRevision[]
+
+  @@unique([applicationId, path])
+  @@index([applicationId, isDeleted, updatedAt])
+}
+
+model FileRevision {
+  id           String          @id @default(cuid())
+  fileId       String
+  revision     Int
+  content      String          @db.Text
+  contentHash  String
+  isDeleted    Boolean         @default(false)
+  createdBy    String?
+  createdAt    DateTime        @default(now())
+  file         ApplicationFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, revision])
+  @@index([fileId, createdAt])
 }
