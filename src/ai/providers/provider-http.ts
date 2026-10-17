@@ -7,6 +7,7 @@ export async function postProviderJson(
   headers: Record<string, string>,
   body: unknown,
   timeoutMs: number,
+  externalSignal?: AbortSignal,
 ): Promise<{ data: Record<string, any>; requestId?: string }> {
   let response: Response;
   try {
@@ -14,9 +15,12 @@ export async function postProviderJson(
       method: 'POST',
       headers: { 'content-type': 'application/json', ...headers },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: externalSignal ? AbortSignal.any([AbortSignal.timeout(timeoutMs), externalSignal]) : AbortSignal.timeout(timeoutMs),
     });
   } catch {
+    if (externalSignal?.aborted) {
+      throw new AiProviderError('AI provider request was cancelled.', provider, false);
+    }
     throw new AiProviderError('AI provider request failed before a response was received.', provider, true);
   }
 
