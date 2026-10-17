@@ -21,6 +21,7 @@ export class ExecutionWorker implements OnModuleInit, OnModuleDestroy {
   private readonly leaseMs: number;
   private stopped = false;
   private currentController?: AbortController;
+  private loopPromise?: Promise<void>;
 
   constructor(
     private readonly jobs: JobQueueService,
@@ -38,12 +39,13 @@ export class ExecutionWorker implements OnModuleInit, OnModuleDestroy {
       return;
     }
     this.logger.log('Execution worker started.');
-    void this.runLoop();
+    this.loopPromise = this.runLoop();
   }
 
-  onModuleDestroy(): void {
+  onModuleDestroy(): Promise<void> | void {
     this.stopped = true;
     this.currentController?.abort();
+    return this.loopPromise;
   }
 
   private async runLoop(): Promise<void> {
