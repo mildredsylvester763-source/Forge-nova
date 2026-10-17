@@ -215,6 +215,7 @@ model Application {
   deployments    Deployment[]
   files          ApplicationFile[]
   workGraphs     WorkGraph[]
+  resourceEvents ResourceUsageEvent[]
 
   @@index([projectId, status, updatedAt])
 }
@@ -273,7 +274,13 @@ model WorkJob {
   finishedAt     DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
+  lockedBy       String?
+  leaseExpiresAt DateTime?
+  heartbeatAt    DateTime?
+  cancelRequestedAt DateTime?
+  maxAttempts    Int         @default(3)
   application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  resourceEvents ResourceUsageEvent[]
 
   @@unique([applicationId, idempotencyKey])
   @@index([status, createdAt])
@@ -405,4 +412,26 @@ model WorkDependency {
 
   @@unique([fromNodeId, toNodeId])
   @@index([toNodeId])
+}
+
+model ResourceUsageEvent {
+  id             String      @id @default(cuid())
+  applicationId  String
+  jobId          String?
+  eventType      String
+  provider       String?
+  model          String?
+  unit           String
+  quantity       Decimal     @db.Decimal(24, 8)
+  dimensions     Json?
+  idempotencyKey String?
+  occurredAt     DateTime    @default(now())
+  createdAt      DateTime    @default(now())
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  job            WorkJob?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@unique([applicationId, idempotencyKey])
+  @@index([applicationId, occurredAt])
+  @@index([jobId, occurredAt])
+  @@index([eventType, occurredAt])
 }
