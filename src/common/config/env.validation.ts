@@ -5,9 +5,9 @@ const environmentSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   API_PREFIX: z.string().regex(/^[a-zA-Z0-9_-]+$/).default('api'),
   API_VERSION: z.coerce.number().int().positive().default(1),
-  DATABASE_URL: z.string().refine(
+  DATABASE_URL: z.string().url().refine(
     (value) => value.startsWith('postgresql://') || value.startsWith('postgres://'),
-    'must be a PostgreSQL connection URL',
+    'must be a valid PostgreSQL connection URL',
   ),
   DATABASE_POOL_TIMEOUT_SECONDS: z.coerce.number().int().positive().max(120).default(10),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
