@@ -87,7 +87,7 @@ export class JobQueueService {
         select: { id: true, attemptCount: true, maxAttempts: true },
       });
       for (const job of exhausted) {
-        if (job.attemptCount >= job.maxAttempts) {
+        if (job.cancelRequestedAt || job.attemptCount >= job.maxAttempts) {
           await tx.workJob.updateMany({
             where: {
               id: job.id,
@@ -95,9 +95,9 @@ export class JobQueueService {
               leaseExpiresAt: { lte: now },
             },
             data: {
-              status: JobStatus.FAILED,
-              errorCode: 'WORKER_LEASE_EXHAUSTED',
-              errorMessage: 'The job exhausted its allowed attempts without a valid worker lease.',
+              status: job.cancelRequestedAt ? JobStatus.CANCELLED : JobStatus.FAILED,
+              errorCode: job.cancelRequestedAt ? 'CANCELLED_AFTER_LEASE_EXPIRY' : 'WORKER_LEASE_EXHAUSTED',
+              errorMessage: job.cancelRequestedAt ? 'The cancellation request was acknowledged after the worker lease expired.' : 'The job exhausted its allowed attempts without a valid worker lease.',
               finishedAt: now,
               lockedBy: null,
               leaseExpiresAt: null,
@@ -109,7 +109,7 @@ export class JobQueueService {
       const candidates = await tx.$queryRawUnsafe<Array<{ id: string }>>(
         `SELECT "id" FROM "WorkJob"
          WHERE ("status" = 'QUEUED'
-           OR ("status" = 'RUNNING' AND "leaseExpiresAt" IS NOT NULL AND "leaseExpiresAt" <= NOW()))
+           OR ("status" = 'RUNNING' AND "leaseExpiresAt" IS NOT NULL AND "leaseExpiresAt" <= NOW() AND "cancelRequestedAt" IS NULL))
            AND "attemptCount" < "maxAttempts"
          ORDER BY "createdAt" ASC
          LIMIT 1
@@ -208,8 +208,9 @@ export class JobQueueService {
 
     const shouldRetry = retryable && job.attemptCount < job.maxAttempts;
     const now = new Date();
+    const now = new Date();
     const updated = await this.prisma.workJob.updateMany({
-      where: { id: jobId, status: JobStatus.RUNNING, lockedBy: workerId },
+      where: { id: jobId, status: JobStatus.RUNNING, lockedBy: workerId, leaseExpiresAt: { gt: now } },
       data: {
         status: shouldRetry ? JobStatus.QUEUED : JobStatus.FAILED,
         errorCode: errorCode.slice(0, 100),
@@ -304,7 +305,7 @@ export class JobQueueService {
   }
 
   private stableStringify(value: unknown): string {
-    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
     if (Array.isArray(value)) {
       return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
     }
