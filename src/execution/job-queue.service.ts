@@ -335,10 +335,11 @@ export class JobQueueService {
         where: { id: jobId },
         select: { status: true, cancelRequestedAt: true },
       });
+      if (!latest) throw new NotFoundException('Job not found.');
       return {
         id: jobId,
-        status: latest?.status ?? JobStatus.FAILED,
-        cancellationRequested: requested.count === 1 || latest?.cancelRequestedAt !== null,
+        status: latest.status,
+        cancellationRequested: requested.count === 1 || Boolean(latest.cancelRequestedAt),
       };
     }
 
