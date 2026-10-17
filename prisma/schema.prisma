@@ -70,6 +70,7 @@ enum AuditOutcome {
 
 enum WorkGraphStatus {
   DRAFT
+  PLANNING
   READY
   EXECUTING
   COMPLETED
@@ -367,6 +368,8 @@ model WorkGraph {
   sourcePrompt  String          @db.Text
   status        WorkGraphStatus @default(DRAFT)
   version       Int             @default(1)
+  planningToken String?
+  planningLeaseExpiresAt DateTime?
   createdBy     String?
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
