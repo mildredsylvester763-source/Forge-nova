@@ -12,14 +12,15 @@ This document separates source code that exists from planned capabilities that h
 - Text source file storage with immutable revision history, optimistic concurrency, safe path validation, and high-confidence secret scanning.
 - Work graph and node/dependency persistence, cycle validation, ready-node analysis, and recoverable AI planning leases.
 - Provider-neutral adapters for OpenAI, Anthropic, Google AI, and Mistral; configurable routing/fallback; provider response normalization; and raw token/call usage metering.
-- Internal durable job queue primitives for atomic claiming, leases, heartbeats, retries, cancellation requests, completion, and failure recording.
+- Internal durable job queue with atomic PostgreSQL claiming, worker leases, heartbeats, retry handling, cooperative cancellation, completion/failure recording, and authenticated job-status/cancel routes.
+- Background worker loop with a concrete asynchronous work-graph planning handler and graceful shutdown cancellation.
 - Raw resource usage event ledger; commercial prices and credit values are intentionally absent.
 - Unit tests for health behavior, environment validation, path safety, secret scanning, AI routing, and plan parsing.
 - GitHub Actions workflow for schema validation, type-checking, unit tests, and backend build. This is source-code CI only; it does not deploy.
 
 ## Not implemented yet
 - Frontend.
-- A continuously running job worker and concrete job handlers.
+- Concrete handlers for code generation, source modification, builds, tests, security scans, deployment, and other job types beyond work-graph planning.
 - Full code-generation execution and safe sandbox runtime.
 - Actual build/test/security-scan execution against generated applications.
 - File/object storage adapter for binary assets and large repositories.
