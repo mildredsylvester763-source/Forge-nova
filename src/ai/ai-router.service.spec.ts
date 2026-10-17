@@ -4,6 +4,7 @@ import { AiRouterService } from './ai-router.service';
 import { AiProvider } from './providers/ai-provider.interface';
 import { AiProviderError } from './providers/ai-provider.interface';
 import { ResourceMeterService } from '../execution/resource-meter.service';
+import { SecretScannerService } from '../security/secret-scanner.service';
 
 describe('AiRouterService', () => {
   const meter = { record: jest.fn().mockResolvedValue({ id: 'usage-event' }) } as unknown as ResourceMeterService;
@@ -36,7 +37,7 @@ describe('AiRouterService', () => {
       get: (id: string) => id === 'openai' ? openai : id === 'anthropic' ? anthropic : undefined,
       available: () => [],
     } as unknown as AiProviderRegistry;
-    const service = new AiRouterService(registry, meter, config);
+    const service = new AiRouterService(registry, meter, config, new SecretScannerService());
 
     const result = await service.complete({
       applicationId: 'app_1',
