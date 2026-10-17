@@ -6,7 +6,7 @@ const planNodeSchema = z.object({
   type: z.enum(['ANALYSIS', 'GENERATE', 'MODIFY', 'BUILD', 'TEST', 'SECURITY_SCAN', 'DEPLOY', 'VERIFY', 'EXTERNAL_TOOL']),
   title: z.string().trim().min(1).max(160),
   description: z.string().max(10000).optional(),
-  dependsOnKeys: z.array(z.string()).max(30).default([]),
+  dependsOnKeys: z.array(z.string()).max(30).refine((values) => new Set(values).size === values.length, 'Dependencies must be unique.').default([]),
   input: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
