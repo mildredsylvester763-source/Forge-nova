@@ -6,6 +6,7 @@ import { AiModule } from '../ai/ai.module';
 import { FileModule } from '../files/file.module';
 import { SecurityModule } from '../security/security.module';
 import { CodeGenerationJobHandler } from '../generation/code-generation.handler';
+import { SourceSyntaxValidatorService } from '../generation/source-syntax-validator.service';
 import { ExecutionHandlerRegistry } from './execution-handler.registry';
 import { WorkGraphPlanJobHandler } from './handlers/work-graph-plan.handler';
 import { ExecutionWorker } from './execution-worker.service';
@@ -15,6 +16,7 @@ import { ExecutionWorker } from './execution-worker.service';
   providers: [
     WorkGraphPlanJobHandler,
     CodeGenerationJobHandler,
+    SourceSyntaxValidatorService,
     {
       provide: 'EXECUTION_JOB_HANDLERS',
       useFactory: (planner: WorkGraphPlanJobHandler, codeGeneration: CodeGenerationJobHandler) => [planner, codeGeneration],
