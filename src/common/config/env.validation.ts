@@ -15,6 +15,16 @@ const environmentSchema = z.object({
   JWT_ACCESS_SECRET: z.string().min(32),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_DEFAULT_MODEL: z.string().min(1).optional(),
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  ANTHROPIC_DEFAULT_MODEL: z.string().min(1).optional(),
+  GOOGLE_AI_API_KEY: z.string().min(1).optional(),
+  GOOGLE_AI_DEFAULT_MODEL: z.string().min(1).optional(),
+  MISTRAL_API_KEY: z.string().min(1).optional(),
+  MISTRAL_DEFAULT_MODEL: z.string().min(1).optional(),
+  AI_PROVIDER_TIMEOUT_MS: z.coerce.number().int().min(1000).max(180000).default(60000),
+  AI_PROVIDER_PRIORITY: z.string().default('openai,anthropic,google,mistral'),
 });
 
 export type AppEnvironment = z.infer<typeof environmentSchema>;
