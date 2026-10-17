@@ -133,6 +133,7 @@ export class CodeGenerationJobHandler implements ExecutionJobHandler {
       job.applicationId,
       generated.files,
       expectedRevisions,
+      signal,
     );
 
     return {
