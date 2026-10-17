@@ -12,6 +12,7 @@ export interface AiCompletionInput {
   temperature?: number;
   timeoutMs?: number;
   allowFallback?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface AiUsage {
