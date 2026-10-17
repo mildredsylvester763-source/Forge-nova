@@ -90,6 +90,18 @@ export class JobQueueService {
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        if (idempotencyKey) {
+          const raced = await this.prisma.workJob.findFirst({
+            where: { applicationId, idempotencyKey },
+          });
+          if (
+            raced &&
+            raced.type === type &&
+            this.stableStringify(raced.input as Prisma.InputJsonValue) === serialized
+          ) {
+            return raced;
+          }
+        }
         throw new ConflictException('A job with this idempotency key already exists.');
       }
       throw error;
@@ -284,7 +296,7 @@ export class JobQueueService {
 
     const now = new Date();
     if (job.status === JobStatus.QUEUED) {
-      await this.prisma.workJob.updateMany({
+      const cancelled = await this.prisma.workJob.updateMany({
         where: { id: jobId, status: JobStatus.QUEUED },
         data: {
           status: JobStatus.CANCELLED,
@@ -292,15 +304,42 @@ export class JobQueueService {
           cancelRequestedAt: now,
         },
       });
-      return { id: jobId, status: JobStatus.CANCELLED };
+      if (cancelled.count === 1) {
+        return { id: jobId, status: JobStatus.CANCELLED };
+      }
+      const latest = await this.prisma.workJob.findUnique({
+        where: { id: jobId },
+        select: { status: true, cancelRequestedAt: true },
+      });
+      if (!latest) throw new NotFoundException('Job not found.');
+      if (latest.status === JobStatus.RUNNING) {
+        const requested = await this.prisma.workJob.updateMany({
+          where: { id: jobId, status: JobStatus.RUNNING, cancelRequestedAt: null },
+          data: { cancelRequestedAt: now },
+        });
+        return {
+          id: jobId,
+          status: JobStatus.RUNNING,
+          cancellationRequested: requested.count === 1 || latest.cancelRequestedAt !== null,
+        };
+      }
+      return { id: jobId, status: latest.status, cancellationRequested: latest.cancelRequestedAt !== null };
     }
 
     if (job.status === JobStatus.RUNNING) {
-      await this.prisma.workJob.updateMany({
+      const requested = await this.prisma.workJob.updateMany({
         where: { id: jobId, status: JobStatus.RUNNING, cancelRequestedAt: null },
         data: { cancelRequestedAt: now },
       });
-      return { id: jobId, status: JobStatus.RUNNING, cancellationRequested: true };
+      const latest = await this.prisma.workJob.findUnique({
+        where: { id: jobId },
+        select: { status: true, cancelRequestedAt: true },
+      });
+      return {
+        id: jobId,
+        status: latest?.status ?? JobStatus.FAILED,
+        cancellationRequested: requested.count === 1 || latest?.cancelRequestedAt !== null,
+      };
     }
 
     return { id: jobId, status: job.status, cancellationRequested: false };
