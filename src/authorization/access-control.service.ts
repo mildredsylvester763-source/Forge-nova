@@ -40,6 +40,54 @@ export class AccessControlService {
     return workspace;
   }
 
+  async requireApplicationRole(
+    userId: string,
+    applicationId: string,
+    allowedRoles: MembershipRole[],
+  ): Promise<{ id: string; projectId: string }> {
+    const application = await this.prisma.application.findFirst({
+      where: {
+        id: applicationId,
+        project: {
+          status: 'ACTIVE',
+          workspace: {
+            organization: {
+              memberships: { some: { userId, role: { in: allowedRoles } } },
+            },
+          },
+        },
+      },
+      select: { id: true, projectId: true },
+    });
+    if (!application) throw new NotFoundException('Application not found.');
+    return application;
+  }
+
+  async requireConversationRole(
+    userId: string,
+    conversationId: string,
+    allowedRoles: MembershipRole[],
+  ): Promise<{ id: string; applicationId: string; archivedAt: Date | null }> {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        id: conversationId,
+        application: {
+          project: {
+            status: 'ACTIVE',
+            workspace: {
+              organization: {
+                memberships: { some: { userId, role: { in: allowedRoles } } },
+              },
+            },
+          },
+        },
+      },
+      select: { id: true, applicationId: true, archivedAt: true },
+    });
+    if (!conversation) throw new NotFoundException('Conversation not found.');
+    return conversation;
+  }
+
   async requireProjectRole(
     userId: string,
     projectId: string,
