@@ -1,5 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { randomBytes } from 'node:crypto';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { CreateWorkspaceDto } from './dto/create-workspace.dto';
@@ -40,7 +41,7 @@ export class WorkspaceService {
       .replace(/^-+|-+$/g, '')
       .toLowerCase()
       .slice(0, 64) || 'workspace';
-    const slug = `${base}-${Math.random().toString(36).slice(2, 8)}`;
+    const slug = `${base}-${randomBytes(4).toString('hex')}`;
 
     try {
       return await this.prisma.workspace.create({
