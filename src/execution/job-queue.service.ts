@@ -84,7 +84,7 @@ export class JobQueueService {
           status: JobStatus.RUNNING,
           leaseExpiresAt: { lte: now },
         },
-        select: { id: true, attemptCount: true, maxAttempts: true },
+        select: { id: true, attemptCount: true, maxAttempts: true, cancelRequestedAt: true },
       });
       for (const job of exhausted) {
         if (job.cancelRequestedAt || job.attemptCount >= job.maxAttempts) {
