@@ -9,6 +9,7 @@ import { ProjectModule } from './projects/project.module';
 import { ApplicationModule } from './applications/application.module';
 import { ConversationModule } from './conversations/conversation.module';
 import { FileModule } from './files/file.module';
+import { WorkGraphModule } from './work-graphs/work-graph.module';
 import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
 import { validateEnvironment } from './common/config/env.validation';
@@ -29,6 +30,7 @@ import { validateEnvironment } from './common/config/env.validation';
     ApplicationModule,
     ConversationModule,
     FileModule,
+    WorkGraphModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
