@@ -22,7 +22,7 @@ export class WorkGraphPlannerService {
     private readonly secrets: SecretScannerService,
   ) {}
 
-  async plan(userId: string, graphId: string) {
+  async plan(userId: string, graphId: string, signal?: AbortSignal) {
     await this.access.requireWorkGraphRole(userId, graphId, this.access.writeRoles());
     const graph = await this.prisma.workGraph.findUnique({
       where: { id: graphId },
@@ -100,6 +100,7 @@ export class WorkGraphPlannerService {
         userPrompt: graph.sourcePrompt,
         maxOutputTokens: 5000,
         allowFallback: true,
+        signal,
       });
 
       const plan = parseWorkPlan(result.text);
