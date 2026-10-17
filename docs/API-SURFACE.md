@@ -42,9 +42,17 @@ All routes are under /api/v1. Routes marked authenticated require a bearer acces
 - GET /api/v1/applications/:applicationId/files/:fileId — read source content.
 - POST /api/v1/applications/:applicationId/files — create/update a file with optimistic revision control.
 - GET /api/v1/applications/:applicationId/files/:fileId/revisions — list immutable revision metadata.
+- POST /api/v1/applications/:applicationId/files/:fileId/restore/:revision — restore a prior revision only if expectedCurrentRevision matches.
 - DELETE /api/v1/applications/:applicationId/files/:fileId/revision/:expectedRevision — soft-delete only if the expected revision matches.
 
 File writes reject unsafe paths, cap text size, preserve revision history, and scan for likely credentials. Binary asset storage is not implemented yet.
+
+## AI source generation
+- POST /api/v1/applications/:applicationId/generate — enqueue a source-generation job. Body: prompt and idempotencyKey. The worker validates the AI's JSON output, scans generated content, and atomically applies the multi-file batch with revision checks.
+- GET /api/v1/applications/:applicationId/jobs/:jobId — inspect progress and result.
+- POST /api/v1/applications/:applicationId/jobs/:jobId/cancel — request cancellation.
+
+Source generation does not claim that output builds or tests successfully. The job result explicitly reports build verification as NOT_RUN until an isolated build/test runner is implemented.
 
 ## Work graphs
 - GET /api/v1/applications/:applicationId/work-graphs — list work graphs.
@@ -57,9 +65,6 @@ File writes reject unsafe paths, cap text size, preserve revision history, and s
 Planning requires a server-side AI provider key and default model. If none is configured, the route returns an explicit service-unavailable error; it does not fabricate a plan.
 
 ## Background jobs
-- GET /api/v1/applications/:applicationId/jobs/:jobId — read job status/result without exposing worker leases or raw provider errors.
-- POST /api/v1/applications/:applicationId/jobs/:jobId/cancel — cancel a queued job or request cooperative cancellation of a running job.
-
 The worker currently has a concrete handler for work-graph planning. Other job types remain unavailable until their handlers and isolated execution environments are implemented.
 
 ## Internal services not exposed as public routes yet
