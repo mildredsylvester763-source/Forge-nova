@@ -55,7 +55,7 @@ describe('AiRouterService', () => {
 
   it('requires application scope before making a provider call', async () => {
     const registry = { ordered: () => [], get: () => undefined, available: () => [] } as unknown as AiProviderRegistry;
-    const service = new AiRouterService(registry, meter, config);
+    const service = new AiRouterService(registry, meter, config, new SecretScannerService());
     await expect(service.complete({
       applicationId: '',
       operationId: 'op_1',
