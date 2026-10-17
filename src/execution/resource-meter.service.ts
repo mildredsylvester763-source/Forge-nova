@@ -55,7 +55,10 @@ export class ResourceMeterService {
           existing.eventType === input.eventType &&
           existing.unit === input.unit &&
           existing.quantity.equals(new Prisma.Decimal(input.quantity)) &&
-          existing.jobId === (input.jobId ?? null);
+          existing.jobId === (input.jobId ?? null) &&
+          existing.provider === (input.provider ?? null) &&
+          existing.model === (input.model ?? null) &&
+          JSON.stringify(existing.dimensions ?? {}) === JSON.stringify(dimensions);
         if (!same) throw new ConflictException('Resource idempotency key was reused for a different event.');
         return existing;
       }
