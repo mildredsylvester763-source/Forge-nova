@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { JobType, Prisma, WorkJob } from '@prisma/client';
 import { AiRouterService } from '../ai/ai-router.service';
 import { AccessControlService } from '../authorization/access-control.service';
@@ -6,7 +10,11 @@ import { PrismaService } from '../database/prisma.service';
 import { ApplicationSourceService } from '../files/application-source.service';
 import { SecretScannerService } from '../security/secret-scanner.service';
 import { ExecutionJobHandler } from '../workers/execution-job-handler.interface';
-import { parseGeneratedSource } from './generated-source.parser';
+import { parseGeneratedSource, ParsedGeneratedSource } from './generated-source.parser';
+import {
+  SourceSyntaxValidatorService,
+  SyntaxValidationResult,
+} from './source-syntax-validator.service';
 
 const MAX_CONTEXT_FILES = 30;
 const MAX_CONTEXT_BYTES = 60_000;
@@ -21,6 +29,7 @@ export class CodeGenerationJobHandler implements ExecutionJobHandler {
     private readonly ai: AiRouterService,
     private readonly source: ApplicationSourceService,
     private readonly secrets: SecretScannerService,
+    private readonly syntax: SourceSyntaxValidatorService,
   ) {}
 
   async execute(job: WorkJob, signal: AbortSignal): Promise<Prisma.InputJsonValue> {
@@ -101,11 +110,11 @@ export class CodeGenerationJobHandler implements ExecutionJobHandler {
       'If the request is ambiguous, make conservative assumptions and document them in the summary rather than inventing external access or credentials.',
     ].join('\n');
 
-    const result = await this.ai.complete({
+    const firstResult = await this.ai.complete({
       applicationId: job.applicationId,
       jobId: job.id,
       operationId: `source-generation:${job.id}:attempt-${job.attemptCount}`,
-      systemPrompt: systemPrompt,
+      systemPrompt,
       userPrompt: [
         'User request:',
         prompt,
@@ -119,12 +128,74 @@ export class CodeGenerationJobHandler implements ExecutionJobHandler {
     });
 
     if (signal.aborted) {
-      throw new BadRequestException('Source generation was cancelled before persistence.');
+      throw new BadRequestException('Source generation was cancelled before validation.');
+    }
+    this.secrets.assertNoSecrets(firstResult.text);
+
+    let generated: ParsedGeneratedSource | undefined;
+    let syntaxValidation: SyntaxValidationResult | undefined;
+    let firstFailure: string | undefined;
+
+    try {
+      generated = parseGeneratedSource(firstResult.text);
+      this.secrets.assertNoSecrets(JSON.stringify(generated));
+      syntaxValidation = this.syntax.validate(generated.files);
+      if (syntaxValidation.status === 'FAILED') {
+        firstFailure = syntaxValidation.diagnostics
+          .map((diagnostic) => `${diagnostic.path}:${diagnostic.line}:${diagnostic.column} ${diagnostic.message}`)
+          .join('\n');
+      }
+    } catch (error) {
+      if (error instanceof UnprocessableEntityException) {
+        firstFailure = error.message;
+      } else {
+        throw error;
+      }
     }
 
-    const generated = parseGeneratedSource(result.text);
-    this.secrets.assertNoSecrets(JSON.stringify(generated));
-    if (signal.aborted) throw new BadRequestException('Source generation was cancelled before file persistence.');
+    if (firstFailure) {
+      if (signal.aborted) throw new BadRequestException('Source generation was cancelled before repair.');
+      const repaired = await this.ai.complete({
+        applicationId: job.applicationId,
+        jobId: job.id,
+        operationId: `source-generation:${job.id}:attempt-${job.attemptCount}:repair-1`,
+        systemPrompt: [
+          systemPrompt,
+          'A previous response failed structured-output or syntax validation.',
+          'Return a corrected complete JSON file batch that fixes every supplied issue.',
+          'Do not claim tests/builds have run. Do not include credentials.',
+        ].join('\n'),
+        userPrompt: JSON.stringify({
+          originalRequest: prompt,
+          applicationContext: context,
+          previousOutput: firstResult.text,
+          validationFailure: firstFailure,
+          syntaxDiagnostics: syntaxValidation?.diagnostics ?? [],
+        }),
+        maxOutputTokens: 12000,
+        allowFallback: true,
+        signal,
+      });
+      if (signal.aborted) throw new BadRequestException('Source generation was cancelled during repair.');
+      this.secrets.assertNoSecrets(repaired.text);
+      generated = parseGeneratedSource(repaired.text);
+      this.secrets.assertNoSecrets(JSON.stringify(generated));
+      syntaxValidation = this.syntax.validate(generated.files);
+      if (syntaxValidation.status === 'FAILED') {
+        throw new UnprocessableEntityException({
+          message: 'Generated source still contains syntax errors after one repair attempt; no files were written.',
+          diagnostics: syntaxValidation.diagnostics,
+        });
+      }
+    }
+
+    if (!generated || !syntaxValidation) {
+      throw new UnprocessableEntityException('The source generator did not produce a validated file batch.');
+    }
+    if (signal.aborted) {
+      throw new BadRequestException('Source generation was cancelled before file persistence.');
+    }
+
     const expectedRevisions = Object.fromEntries(
       existingFiles.map((file) => [file.path, file.revision]),
     );
@@ -143,6 +214,12 @@ export class CodeGenerationJobHandler implements ExecutionJobHandler {
       filesApplied: applied.filesApplied,
       files: applied.files,
       sourcePersisted: true,
+      syntaxValidation: {
+        status: syntaxValidation.status,
+        checkedFiles: syntaxValidation.checkedFiles,
+        unsupportedFiles: syntaxValidation.unsupportedFiles,
+        diagnostics: syntaxValidation.diagnostics,
+      },
       buildVerification: 'NOT_RUN',
       deploymentStatus: 'NOT_DEPLOYED',
     } as Prisma.InputJsonValue;
