@@ -129,7 +129,8 @@ export class WorkGraphService {
       graphId,
       this.access.writeRoles(),
     );
-    if (![WorkGraphStatus.DRAFT, WorkGraphStatus.READY].includes(graph.status)) {
+    const editableStatuses: readonly WorkGraphStatus[] = [WorkGraphStatus.DRAFT, WorkGraphStatus.READY];
+    if (!editableStatuses.includes(graph.status)) {
       throw new ConflictException('Nodes cannot be added after graph execution has started.');
     }
 
@@ -253,12 +254,13 @@ export class WorkGraphService {
     }
 
     const statusById = new Map(nodes.map((node) => [node.id, node.status]));
+    const satisfiedStatuses: readonly WorkNodeStatus[] = [WorkNodeStatus.SUCCEEDED, WorkNodeStatus.RECORDED];
     const readyNodes = nodes
       .filter(
         (node) =>
           node.status === WorkNodeStatus.PENDING &&
           node.incomingDependencies.every((edge) =>
-            [WorkNodeStatus.SUCCEEDED, WorkNodeStatus.RECORDED].includes(statusById.get(edge.fromNodeId) as WorkNodeStatus),
+            satisfiedStatuses.includes(statusById.get(edge.fromNodeId) as WorkNodeStatus),
           ),
       )
       .map((node) => ({ id: node.id, key: node.key }));
