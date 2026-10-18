@@ -54,7 +54,9 @@ export class SourceSyntaxValidatorService {
         true,
         scriptKind,
       );
-      for (const diagnostic of source.parseDiagnostics) {
+      const parseDiagnostics =
+        (source as unknown as { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+      for (const diagnostic of parseDiagnostics) {
         const position = diagnostic.file && diagnostic.start !== undefined
           ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
           : { line: 0, character: 0 };
