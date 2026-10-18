@@ -157,21 +157,20 @@ suite('GENESIS product functional flows (real app, real database)', () => {
   });
 
   it('rotates refresh tokens: the old one stops working after use', async () => {
+    const oldRefreshToken = alice.tokens.refreshToken;
     const refreshed = await api('POST', '/auth/refresh', {
-      refreshToken: alice.tokens.refreshToken,
+      refreshToken: oldRefreshToken,
     });
     expect(refreshed.status).toBe(200);
     expect(typeof refreshed.body.refreshToken).toBe('string');
-    expect(refreshed.body.refreshToken).not.toBe(alice.tokens.refreshToken);
+    expect(refreshed.body.refreshToken).not.toBe(oldRefreshToken);
     alice.tokens = {
       accessToken: refreshed.body.accessToken as string,
       refreshToken: refreshed.body.refreshToken as string,
     };
 
     const replay = await api('POST', '/auth/refresh', {
-      refreshToken: alice.tokens.refreshToken === refreshed.body.refreshToken
-        ? 'impossible-replay-token'
-        : alice.tokens.refreshToken,
+      refreshToken: oldRefreshToken,
     });
     expect(replay.status).toBe(401);
   });
