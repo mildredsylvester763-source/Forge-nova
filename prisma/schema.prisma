@@ -218,6 +218,7 @@ model Application {
   files          ApplicationFile[]
   workGraphs     WorkGraph[]
   resourceEvents ResourceUsageEvent[]
+  verifications  VerificationRun[]
 
   @@index([projectId, status, updatedAt])
 }
@@ -283,6 +284,7 @@ model WorkJob {
   maxAttempts    Int         @default(3)
   application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   resourceEvents ResourceUsageEvent[]
+  verifications  VerificationRun[]
 
   @@unique([applicationId, idempotencyKey])
   @@index([status, createdAt])
@@ -438,4 +440,43 @@ model ResourceUsageEvent {
   @@index([applicationId, occurredAt])
   @@index([jobId, occurredAt])
   @@index([eventType, occurredAt])
+}
+
+
+enum VerificationStatus {
+  PENDING
+  RUNNING
+  PASSED
+  FAILED
+  SKIPPED
+  ERROR
+}
+
+enum VerificationKind {
+  STATIC_ANALYSIS
+  SECRET_SCAN
+  DEPENDENCY_AUDIT
+  BUILD
+  TEST
+}
+
+model VerificationRun {
+  id            String             @id @default(cuid())
+  applicationId String
+  jobId         String?
+  kind          VerificationKind
+  status        VerificationStatus @default(PENDING)
+  summary       String?            @db.Text
+  findings      Json?
+  evidence      Json?
+  triggeredBy   String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  application   Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  job           WorkJob?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([applicationId, kind, createdAt])
+  @@index([status, createdAt])
 }
