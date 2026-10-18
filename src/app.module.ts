@@ -18,6 +18,7 @@ import { WorkerModule } from './workers/worker.module';
 import { GenerationModule } from './generation/generation.module';
 import { CheckpointModule } from './checkpoints/checkpoint.module';
 import { VerificationModule } from './verification/verification.module';
+import { ReferencesModule } from './references/references.module';
 import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
 import { validateEnvironment } from './common/config/env.validation';
@@ -47,6 +48,7 @@ import { validateEnvironment } from './common/config/env.validation';
     GenerationModule,
     CheckpointModule,
     VerificationModule,
+    ReferencesModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
