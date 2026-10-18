@@ -43,7 +43,7 @@ suite('GENESIS product functional flows (real app, real database)', () => {
   const api = async (
     method: string,
     path: string,
-    body: unknown,
+    body: unknown = undefined,
     accessToken?: string,
   ): Promise<{ status: number; body: Record<string, unknown> }> => {
     const response = await fetch(baseUrl + path, {
@@ -91,7 +91,7 @@ suite('GENESIS product functional flows (real app, real database)', () => {
     const moduleRef = await Test.createTestingModule({}).compile();
     await moduleRef.close();
 
-    const { AppModule } = await import('../../app.module');
+    const { AppModule } = await import('../app.module');
     const testing = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -115,7 +115,7 @@ suite('GENESIS product functional flows (real app, real database)', () => {
   });
 
   afterAll(async () => {
-    const { PrismaService } = await import('../../database/prisma.service');
+    const { PrismaService } = await import('../database/prisma.service');
     const prisma = app.get(PrismaService);
     for (const organizationId of createdOrganizationIds) {
       await prisma.organization.deleteMany({ where: { id: organizationId } });
