@@ -12,6 +12,7 @@ import { PrismaModule } from '../database/prisma.module';
     ConfigModule,
     PrismaModule,
     JwtModule.registerAsync({
+      global: true,
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
