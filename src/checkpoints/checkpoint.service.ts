@@ -100,12 +100,11 @@ export class CheckpointService {
         await tx.auditEvent.create({
           data: {
             actorUserId: userId,
-            applicationId,
             action: 'application.checkpoint.create',
             resourceType: 'checkpoint',
             resourceId: checkpoint.id,
             outcome: 'SUCCESS',
-            metadata: { label: trimmedLabel, fileCount: files.length },
+            metadata: { applicationId, label: trimmedLabel, fileCount: files.length },
           },
         });
         return { ...checkpoint, fileCount: files.length };
@@ -273,12 +272,11 @@ export class CheckpointService {
         await tx.auditEvent.create({
           data: {
             actorUserId: userId,
-            applicationId,
             action: 'application.checkpoint.restore',
             resourceType: 'checkpoint',
             resourceId: checkpoint.id,
             outcome: 'SUCCESS',
-            metadata: { label: checkpoint.label, changedFiles },
+            metadata: { applicationId, label: checkpoint.label, changedFiles },
           },
         });
         return {
