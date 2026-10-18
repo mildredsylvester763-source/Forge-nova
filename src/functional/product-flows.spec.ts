@@ -411,6 +411,85 @@ suite('GENESIS product functional flows (real app, real database)', () => {
     }
   });
 
+  it('blocks deployment readiness honestly for an empty application', async () => {
+    const response = await api(
+      'GET',
+      '/applications/' + emptyApplicationId + '/deployments/readiness',
+      undefined,
+      alice.tokens.accessToken,
+    );
+    expect(response.status).toBe(200);
+    const report = response.body as { verdict: string; checks: Array<{ code: string; status: string }> };
+    expect(report.verdict).toBe('BLOCKED');
+    expect(report.checks.some((check) => check.code === 'readiness.empty-application' && check.status === 'FAIL')).toBe(true);
+  });
+
+  it('refuses to record a deployment when the latest verification failed', async () => {
+    const response = await api(
+      'POST',
+      '/applications/' + applicationId + '/deployments',
+      { environment: 'STAGING' },
+      alice.tokens.accessToken,
+    );
+    expect(response.status).toBe(400);
+    const body = response.body as { readiness?: { verdict: string } };
+    expect(body.readiness?.verdict).toBe('BLOCKED');
+  });
+
+  it('records an honest deployment intent for a clean, verified application', async () => {
+    const created = await api(
+      'POST',
+      '/projects/' + projectId + '/applications',
+      { name: 'Deployable App' },
+      alice.tokens.accessToken,
+    );
+    expect(created.status).toBe(201);
+    const deployableId = (created.body as { id: string }).id;
+
+    const page = await api(
+      'POST',
+      '/applications/' + deployableId + '/files',
+      { path: 'index.html', content: '<!doctype html><html><body><h1>Deployable</h1></body></html>' },
+      alice.tokens.accessToken,
+    );
+    expect(page.status).toBe(201);
+
+    const verified = await api(
+      'POST',
+      '/applications/' + deployableId + '/verifications',
+      {},
+      alice.tokens.accessToken,
+    );
+    expect(verified.status).toBe(201);
+
+    const deployment = await api(
+      'POST',
+      '/applications/' + deployableId + '/deployments',
+      { environment: 'PREVIEW' },
+      alice.tokens.accessToken,
+    );
+    expect(deployment.status).toBe(201);
+    const record = deployment.body as {
+      environment: string;
+      status: string;
+      metadata: { readiness: { verdict: string }; adapter: string; executionNote: string };
+    };
+    expect(record.environment).toBe('PREVIEW');
+    expect(record.status).toBe('READY');
+    expect(record.metadata.readiness.verdict).toBe('READY');
+    expect(record.metadata.adapter).toBe('none-configured');
+    expect(record.metadata.executionNote).toContain('does not claim execution');
+
+    const listed = await api(
+      'GET',
+      '/applications/' + deployableId + '/deployments',
+      undefined,
+      alice.tokens.accessToken,
+    );
+    expect(listed.status).toBe(200);
+    expect((listed.body as unknown as Array<{ id: string }>).length).toBe(1);
+  });
+
   it('enforces tenant isolation: a second user cannot touch the first user application', async () => {
     bob = await registerUser('bob');
 
