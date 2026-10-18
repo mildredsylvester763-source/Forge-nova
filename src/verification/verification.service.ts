@@ -155,7 +155,7 @@ export class VerificationService {
     const verdict = verdictFromFindings(kind, execution.findings, execution.analyzedCount);
     const storedFindings = execution.findings.slice(0, MAX_STORED_FINDINGS);
     const omittedCount = execution.findings.length - storedFindings.length;
-    const evidence = { ...execution.evidence, totalFiles };
+    const evidence: Record<string, unknown> = { ...execution.evidence, totalFiles };
     if (omittedCount > 0) {
       evidence.storedFindings = storedFindings.length;
       evidence.omittedFindings = omittedCount;
