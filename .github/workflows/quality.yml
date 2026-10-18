@@ -64,5 +64,12 @@ jobs:
             safe=$(printf '%s' "$line" | sed 's/%/%25/g')
             echo "::error::${safe}"
           done
+      - name: Surface test failures as annotations
+        if: failure()
+        run: |
+          tail -80 jest-output.log | sed 's/\r//' | grep -v '^[[:space:]]*$' | head -40 | while IFS= read -r line; do
+            safe=$(printf '%s' "$line" | sed 's/%/%25/g')
+            echo "::error::${safe}"
+          done
       - name: Build backend
         run: npm run build
