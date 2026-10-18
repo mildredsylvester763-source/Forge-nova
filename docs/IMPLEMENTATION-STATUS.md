@@ -18,13 +18,15 @@ This document separates source code that exists from planned capabilities that h
 - Background worker loop with a concrete asynchronous work-graph planning handler and graceful shutdown cancellation.
 - Raw resource usage event ledger; commercial prices and credit values are intentionally absent.
 - Unit tests for health behavior, environment validation, path safety, secret scanning, AI routing, and plan parsing.
+- Application verification subsystem: real non-executing static analysis (TypeScript parser diagnostics + JSON validation), real secret scanning over all live application files, and a structural package.json dependency audit. Each run persists a VerificationRun row with honest status (PASSED / FAILED / SKIPPED), severity counts, capped findings, and evidence (engine version, analyzed file counts, unsupported files). Zero analyzable files is recorded as SKIPPED, never a fabricated PASS. Verification is exposed via authenticated project-role endpoints (POST run, GET list, GET inspect) and via a SECURITY_SCAN job handler on the durable queue; BUILD and TEST kinds exist in the enum but deliberately cannot be requested because no real build/test execution exists yet.
 - GitHub Actions workflow for schema validation, type-checking, unit tests, and backend build. This is source-code CI only; it does not deploy.
 
 ## Not implemented yet
 - Frontend.
 - Concrete handlers for full work-graph execution, source modification, builds, tests, security scans, deployment, and other job types beyond initial source generation and work-graph planning.
 - Full code-generation execution and safe sandbox runtime.
-- Actual build/test/security-scan execution against generated applications.
+- Real build and test execution against generated applications (static security scanning exists; executed builds/tests do not).
+- Sandboxed application runtime and isolated execution interface.
 - File/object storage adapter for binary assets and large repositories.
 - Reference ingestion for screenshots, Figma files, video, documents, websites, and repositories.
 - Authentication email verification, password reset, MFA, social login, OAuth/SSO, invitations, and ownership transfer.
