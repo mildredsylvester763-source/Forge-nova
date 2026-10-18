@@ -219,6 +219,7 @@ model Application {
   workGraphs     WorkGraph[]
   resourceEvents ResourceUsageEvent[]
   verifications  VerificationRun[]
+  references    ReferenceDocument[]
 
   @@index([projectId, status, updatedAt])
 }
@@ -479,4 +480,37 @@ model VerificationRun {
 
   @@index([applicationId, kind, createdAt])
   @@index([status, createdAt])
+}
+
+
+enum ReferenceKind {
+  SPEC
+  TRANSCRIPT
+  NOTES
+  OTHER
+}
+
+enum ReferenceStatus {
+  STORED
+  EXTRACTED
+  EXTRACTION_FAILED
+}
+
+model ReferenceDocument {
+  id              String          @id @default(cuid())
+  applicationId   String
+  title           String
+  kind            ReferenceKind
+  content         String          @db.Text
+  status          ReferenceStatus @default(STORED)
+  extraction      Json?
+  extractionError String?         @db.Text
+  extractedAt     DateTime?
+  createdBy       String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  application     Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@index([applicationId, status, updatedAt])
 }
