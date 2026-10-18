@@ -222,6 +222,6 @@ export class CodeGenerationJobHandler implements ExecutionJobHandler {
       },
       buildVerification: 'NOT_RUN',
       deploymentStatus: 'NOT_DEPLOYED',
-    } as Prisma.InputJsonValue;
+    } as unknown as Prisma.InputJsonValue;
   }
 }
