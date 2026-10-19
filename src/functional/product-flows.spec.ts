@@ -29,6 +29,7 @@ suite('GENESIS product functional flows (real app, real database)', () => {
   let baseUrl: string;
   let alice: UserContext;
   let bob: UserContext;
+  let carol: UserContext;
   let organizationId: string;
   let workspaceId: string;
   let projectId: string;
@@ -526,6 +527,411 @@ suite('GENESIS product functional flows (real app, real database)', () => {
     expect(storedReferences.status).toBe(200);
     const references = storedReferences.body as unknown as Array<{ title: string }>;
     expect(references.some((item) => item.title === 'Intrusion')).toBe(false);
+  });
+
+  it('adds members to the organization and refuses duplicates, unknown accounts, and non-admin actors', async () => {
+    carol = await registerUser('carol');
+
+    const added = await api(
+      'POST',
+      '/organizations/' + organizationId + '/members',
+      { email: bob.email, role: 'DEVELOPER' },
+      alice.tokens.accessToken,
+    );
+    expect(added.status).toBe(201);
+    expect(added.body).toMatchObject({ role: 'DEVELOPER' });
+
+    const duplicate = await api(
+      'POST',
+      '/organizations/' + organizationId + '/members',
+      { email: bob.email, role: 'DEVELOPER' },
+      alice.tokens.accessToken,
+    );
+    expect(duplicate.status).toBe(409);
+
+    const unknown = await api(
+      'POST',
+      '/organizations/' + organizationId + '/members',
+      { email: 'no-such-account-' + runId + '@example.com', role: 'VIEWER' },
+      alice.tokens.accessToken,
+    );
+    expect(unknown.status).toBe(404);
+
+    const bobTries = await api(
+      'POST',
+      '/organizations/' + organizationId + '/members',
+      { email: carol.email, role: 'VIEWER' },
+      bob.tokens.accessToken,
+    );
+    expect(bobTries.status).toBe(404);
+  });
+
+  it('changes member roles but protects the last owner and refuses owner assignment', async () => {
+    const members = await api(
+      'GET',
+      '/organizations/' + organizationId + '/members',
+      undefined,
+      alice.tokens.accessToken,
+    );
+    expect(members.status).toBe(200);
+    const list = members.body as unknown as Array<{ id: string; role: string; user: { email: string } }>;
+    const bobMembership = list.find((member) => member.user.email === bob.email);
+    const aliceMembership = list.find((member) => member.user.email === alice.email);
+    expect(bobMembership).toBeDefined();
+    expect(aliceMembership).toBeDefined();
+
+    const ownerAttempt = await api(
+      'PATCH',
+      '/organizations/' + organizationId + '/members/' + bobMembership!.id,
+      { role: 'OWNER' },
+      alice.tokens.accessToken,
+    );
+    expect(ownerAttempt.status).toBe(400);
+
+    const promoted = await api(
+      'PATCH',
+      '/organizations/' + organizationId + '/members/' + bobMembership!.id,
+      { role: 'ADMIN' },
+      alice.tokens.accessToken,
+    );
+    expect(promoted.status).toBe(200);
+    expect(promoted.body).toMatchObject({ role: 'ADMIN' });
+
+    const lastOwner = await api(
+      'PATCH',
+      '/organizations/' + organizationId + '/members/' + aliceMembership!.id,
+      { role: 'ADMIN' },
+      alice.tokens.accessToken,
+    );
+    expect(lastOwner.status).toBe(400);
+
+    const unknownMembership = await api(
+      'PATCH',
+      '/organizations/' + organizationId + '/members/nonexistent-membership-id',
+      { role: 'DEVELOPER' },
+      alice.tokens.accessToken,
+    );
+    expect(unknownMembership.status).toBe(404);
+
+    const bobAddsAsAdmin = await api(
+      'POST',
+      '/organizations/' + organizationId + '/members',
+      { email: carol.email, role: 'VIEWER' },
+      bob.tokens.accessToken,
+    );
+    expect(bobAddsAsAdmin.status).toBe(201);
+  });
+
+  it('exposes the audit trail to admins only and records the real actions', async () => {
+    const denied = await api(
+      'GET',
+      '/organizations/' + organizationId + '/audit-events',
+      undefined,
+      carol.tokens.accessToken,
+    );
+    expect(denied.status).toBe(404);
+
+    const trail = await api(
+      'GET',
+      '/organizations/' + organizationId + '/audit-events',
+      undefined,
+      alice.tokens.accessToken,
+    );
+    expect(trail.status).toBe(200);
+    const events = trail.body as unknown as Array<{ action: string; outcome: string }>;
+    const actions = events.map((event) => event.action);
+    expect(actions).toContain('organization.member.add');
+    expect(actions).toContain('organization.member.role.change');
+    expect(events.every((event) => event.outcome === 'SUCCESS')).toBe(true);
+  });
+
+  it('transfers ownership atomically and protects the new single owner', async () => {
+    const members = await api(
+      'GET',
+      '/organizations/' + organizationId + '/members',
+      undefined,
+      alice.tokens.accessToken,
+    );
+    const list = members.body as unknown as Array<{ id: string; role: string; user: { email: string } }>;
+    const bobMembership = list.find((member) => member.user.email === bob.email);
+
+    const transferred = await api(
+      'POST',
+      '/organizations/' + organizationId + '/ownership-transfer',
+      { memberId: bobMembership!.id },
+      alice.tokens.accessToken,
+    );
+    expect(transferred.status).toBe(201);
+    expect(transferred.body).toMatchObject({ previousOwnerId: alice.userId, newOwnerId: bob.userId });
+
+    const afterTransfer = await api(
+      'GET',
+      '/organizations/' + organizationId + '/members',
+      undefined,
+      alice.tokens.accessToken,
+    );
+    const updated = afterTransfer.body as unknown as Array<{ role: string; user: { email: string } }>;
+    expect(updated.find((member) => member.user.email === bob.email)?.role).toBe('OWNER');
+    expect(updated.find((member) => member.user.email === alice.email)?.role).toBe('ADMIN');
+
+    const selfTransfer = await api(
+      'POST',
+      '/organizations/' + organizationId + '/ownership-transfer',
+      { memberId: bobMembership!.id },
+      bob.tokens.accessToken,
+    );
+    expect(selfTransfer.status).toBe(400);
+
+    const nonMember = await api(
+      'POST',
+      '/organizations/' + organizationId + '/ownership-transfer',
+      { memberId: 'nonexistent-membership-id' },
+      bob.tokens.accessToken,
+    );
+    expect(nonMember.status).toBe(404);
+  });
+
+  it('removes members but never allows direct owner removal', async () => {
+    const members = await api(
+      'GET',
+      '/organizations/' + organizationId + '/members',
+      undefined,
+      alice.tokens.accessToken,
+    );
+    const list = members.body as unknown as Array<{ id: string; role: string; user: { email: string } }>;
+    const carolMembership = list.find((member) => member.user.email === carol.email);
+    const bobMembership = list.find((member) => member.user.email === bob.email);
+
+    const removed = await api(
+      'DELETE',
+      '/organizations/' + organizationId + '/members/' + carolMembership!.id,
+      undefined,
+      bob.tokens.accessToken,
+    );
+    expect(removed.status).toBe(200);
+    expect(removed.body).toMatchObject({ removed: true });
+
+    const again = await api(
+      'DELETE',
+      '/organizations/' + organizationId + '/members/' + carolMembership!.id,
+      undefined,
+      bob.tokens.accessToken,
+    );
+    expect(again.status).toBe(404);
+
+    const ownerRemoval = await api(
+      'DELETE',
+      '/organizations/' + organizationId + '/members/' + bobMembership!.id,
+      undefined,
+      bob.tokens.accessToken,
+    );
+    expect(ownerRemoval.status).toBe(400);
+  });
+
+  it('updates application details and refuses updates to unknown applications', async () => {
+    const updated = await api(
+      'PATCH',
+      '/projects/' + projectId + '/applications/' + applicationId,
+      { framework: 'next', runtime: 'edge' },
+      alice.tokens.accessToken,
+    );
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({ name: 'Functional App', framework: 'next', runtime: 'edge' });
+
+    const unknown = await api(
+      'PATCH',
+      '/projects/' + projectId + '/applications/nonexistent-application-id',
+      { framework: 'next' },
+      alice.tokens.accessToken,
+    );
+    expect(unknown.status).toBe(404);
+  });
+
+  it('archives an application, blocks writes while archived, and restores it', async () => {
+    const archived = await api(
+      'POST',
+      '/projects/' + projectId + '/applications/' + emptyApplicationId + '/archive',
+      {},
+      alice.tokens.accessToken,
+    );
+    expect(archived.status).toBe(201);
+    expect(archived.body).toMatchObject({ status: 'ARCHIVED' });
+
+    const blockedWrite = await api(
+      'POST',
+      '/applications/' + emptyApplicationId + '/files',
+      { path: 'src/blocked.ts', content: 'export const blocked = true;', language: 'typescript' },
+      alice.tokens.accessToken,
+    );
+    expect(blockedWrite.status).toBe(404);
+
+    const readableWhileArchived = await api(
+      'GET',
+      '/applications/' + emptyApplicationId + '/deployments/readiness',
+      undefined,
+      alice.tokens.accessToken,
+    );
+    expect(readableWhileArchived.status).toBe(200);
+
+    const hiddenFromList = await api(
+      'GET',
+      '/projects/' + projectId + '/applications',
+      undefined,
+      alice.tokens.accessToken,
+    );
+    const listed = hiddenFromList.body as unknown as Array<{ id: string }>;
+    expect(listed.some((item) => item.id === emptyApplicationId)).toBe(false);
+
+    const restored = await api(
+      'POST',
+      '/projects/' + projectId + '/applications/' + emptyApplicationId + '/restore',
+      {},
+      alice.tokens.accessToken,
+    );
+    expect(restored.status).toBe(201);
+    expect(restored.body).toMatchObject({ status: 'PLANNING' });
+
+    const writeAfterRestore = await api(
+      'POST',
+      '/applications/' + emptyApplicationId + '/files',
+      { path: 'src/unblocked.ts', content: 'export const unblocked = true;', language: 'typescript' },
+      alice.tokens.accessToken,
+    );
+    expect(writeAfterRestore.status).toBe(201);
+  });
+
+  it('archives a project, blocking new applications, and restores it', async () => {
+    const scratch = await api(
+      'POST',
+      '/workspaces/' + workspaceId + '/projects',
+      { name: 'Lifecycle Scratch Project' },
+      alice.tokens.accessToken,
+    );
+    expect(scratch.status).toBe(201);
+    const scratchId = (scratch.body as { id: string }).id;
+
+    const archived = await api(
+      'POST',
+      '/projects/' + scratchId + '/archive',
+      {},
+      alice.tokens.accessToken,
+    );
+    expect(archived.status).toBe(201);
+    expect(archived.body).toMatchObject({ status: 'ARCHIVED' });
+
+    const blocked = await api(
+      'POST',
+      '/projects/' + scratchId + '/applications',
+      { name: 'Blocked App' },
+      alice.tokens.accessToken,
+    );
+    expect(blocked.status).toBe(404);
+
+    const restored = await api(
+      'POST',
+      '/projects/' + scratchId + '/restore',
+      {},
+      alice.tokens.accessToken,
+    );
+    expect(restored.status).toBe(201);
+    expect(restored.body).toMatchObject({ status: 'ACTIVE' });
+
+    const allowed = await api(
+      'POST',
+      '/projects/' + scratchId + '/applications',
+      { name: 'Unblocked App' },
+      alice.tokens.accessToken,
+    );
+    expect(allowed.status).toBe(201);
+  });
+
+  it('checkpoints an application and restores the exact earlier state atomically', async () => {
+    const created = await api(
+      'POST',
+      '/projects/' + projectId + '/applications',
+      { name: 'Checkpointed App' },
+      alice.tokens.accessToken,
+    );
+    expect(created.status).toBe(201);
+    const checkpointedId = (created.body as { id: string }).id;
+
+    const first = await api(
+      'POST',
+      '/applications/' + checkpointedId + '/files',
+      { path: 'a.ts', content: 'export const value = 1;', language: 'typescript' },
+      alice.tokens.accessToken,
+    );
+    expect(first.status).toBe(201);
+    const second = await api(
+      'POST',
+      '/applications/' + checkpointedId + '/files',
+      { path: 'b.ts', content: 'export const other = 2;', language: 'typescript' },
+      alice.tokens.accessToken,
+    );
+    expect(second.status).toBe(201);
+
+    const blankLabel = await api(
+      'POST',
+      '/applications/' + checkpointedId + '/checkpoints',
+      { label: '   ' },
+      alice.tokens.accessToken,
+    );
+    expect(blankLabel.status).toBe(400);
+
+    const checkpoint = await api(
+      'POST',
+      '/applications/' + checkpointedId + '/checkpoints',
+      { label: 'stable' },
+      alice.tokens.accessToken,
+    );
+    expect(checkpoint.status).toBe(201);
+    expect(checkpoint.body).toMatchObject({ label: 'stable', fileCount: 2 });
+    const checkpointId = (checkpoint.body as { id: string }).id;
+
+    const mutated = await api(
+      'POST',
+      '/applications/' + checkpointedId + '/files',
+      { path: 'a.ts', content: 'export const value = 999;', language: 'typescript', expectedRevision: 1 },
+      alice.tokens.accessToken,
+    );
+    expect(mutated.status).toBe(201);
+    const extra = await api(
+      'POST',
+      '/applications/' + checkpointedId + '/files',
+      { path: 'c.ts', content: 'export const added = 3;', language: 'typescript' },
+      alice.tokens.accessToken,
+    );
+    expect(extra.status).toBe(201);
+
+    const restored = await api(
+      'POST',
+      '/applications/' + checkpointedId + '/checkpoints/' + checkpointId + '/restore',
+      {},
+      alice.tokens.accessToken,
+    );
+    expect(restored.status).toBe(201);
+    expect(restored.body).toMatchObject({ changedFiles: 2, atomic: true });
+
+    const files = await api(
+      'GET',
+      '/applications/' + checkpointedId + '/files',
+      undefined,
+      alice.tokens.accessToken,
+    );
+    expect(files.status).toBe(200);
+    const currentFiles = files.body as unknown as Array<{ path: string; content: string; revision: number }>;
+    const fileA = currentFiles.find((file) => file.path === 'a.ts');
+    expect(fileA?.content).toBe('export const value = 1;');
+    expect(fileA?.revision).toBe(3);
+    expect(currentFiles.some((file) => file.path === 'c.ts')).toBe(false);
+
+    const bogus = await api(
+      'POST',
+      '/applications/' + checkpointedId + '/checkpoints/nonexistent-checkpoint-id/restore',
+      {},
+      alice.tokens.accessToken,
+    );
+    expect(bogus.status).toBe(404);
   });
 
   it('logs out and revokes the refresh token session', async () => {
