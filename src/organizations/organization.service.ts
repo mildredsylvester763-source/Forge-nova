@@ -219,7 +219,15 @@ export class OrganizationService {
     if (!decision.allowed) {
       throw new BadRequestException(REFUSAL_MESSAGES[decision.refusal]);
     }
-    await this.prisma.membership.delete({ where: { id: membershipId } });
+    // Guarded delete: two admins pressing remove at the same time must not
+    // race into a raw record-not-found error; the loser gets a clean 404
+    // and no audit event is written for it.
+    const removal = await this.prisma.membership.deleteMany({
+      where: { id: membershipId },
+    });
+    if (removal.count !== 1) {
+      throw new NotFoundException('Membership not found.');
+    }
     await this.prisma.auditEvent.create({
       data: {
         actorUserId: userId,
