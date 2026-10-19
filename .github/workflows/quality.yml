@@ -56,20 +56,20 @@ jobs:
         run: |
           set -o pipefail
           npm test 2>&1 | tee jest-output.log
-      - name: Surface test failures as annotations
+      - name: Surface failing test names as annotation
         if: failure()
         run: |
-          grep -E '^(Tests|Test Suites|Snapshots):' jest-output.log || true
-          awk '/^●/{flag=1; count=0} flag{print; count++; if(count>=10) flag=0}' jest-output.log | sed 's/\r//' | grep -v '^[[:space:]]*$' | head -50 | while IFS= read -r line; do
-            safe=$(printf '%s' "$line" | sed 's/%/%25/g')
-            echo "::error::${safe}"
-          done
-      - name: Surface test failures as annotations
+          names=$(grep '✕' jest-output.log | sed 's/\r//' | head -40 | tr '\n' ' ')
+          if [ -n "$names" ]; then echo "::error::FAILING-TESTS $names"; fi
+      - name: Surface failure details as annotations
         if: failure()
         run: |
-          tail -80 jest-output.log | sed 's/\r//' | grep -v '^[[:space:]]*$' | head -40 | while IFS= read -r line; do
-            safe=$(printf '%s' "$line" | sed 's/%/%25/g')
-            echo "::error::${safe}"
-          done
+          sums=$(grep -E '^(Tests|Test Suites):' jest-output.log | tr '\n' ' ')
+          if [ -n "$sums" ]; then echo "::error::SUMMARY $sums"; fi
+          block=$(awk '/●.*›/{p=1} p' jest-output.log | sed 's/\r//' | grep -v '^[[:space:]]*$' | head -90 | tr '\n' '¶')
+          if [ -n "$block" ]; then
+            trimmed=$(printf '%s' "$block" | head -c 3800)
+            echo "::error::DETAILS $trimmed"
+          fi
       - name: Build backend
         run: npm run build
