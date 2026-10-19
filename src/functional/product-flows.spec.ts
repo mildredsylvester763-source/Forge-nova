@@ -919,11 +919,20 @@ suite('GENESIS product functional flows (real app, real database)', () => {
       alice.tokens.accessToken,
     );
     expect(files.status).toBe(200);
-    const currentFiles = files.body as unknown as Array<{ path: string; content: string; revision: number }>;
+    const currentFiles = files.body as unknown as Array<{ id: string; path: string; revision: number }>;
     const fileA = currentFiles.find((file) => file.path === 'a.ts');
-    expect(fileA?.content).toBe('export const value = 1;');
     expect(fileA?.revision).toBe(3);
+    expect(currentFiles.length).toBe(2);
     expect(currentFiles.some((file) => file.path === 'c.ts')).toBe(false);
+
+    const fileRead = await api(
+      'GET',
+      '/applications/' + checkpointedId + '/files/' + fileA!.id,
+      undefined,
+      alice.tokens.accessToken,
+    );
+    expect(fileRead.status).toBe(200);
+    expect((fileRead.body as { content: string }).content).toBe('export const value = 1;');
 
     const bogus = await api(
       'POST',
