@@ -104,4 +104,42 @@ export class ProjectService {
       select: { id: true, name: true, status: true, updatedAt: true },
     });
   }
+
+  /**
+   * Restores an archived project. The archived-state lookup below is the guard
+   * itself: write-role access checks exclude ARCHIVED projects.
+   */
+  async restore(userId: string, projectId: string) {
+    const archived = await this.prisma.project.findFirst({
+      where: {
+        id: projectId,
+        status: ProjectStatus.ARCHIVED,
+        workspace: {
+          organization: {
+            memberships: { some: { userId, role: { in: this.access.writeRoles() } } },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    if (!archived) {
+      throw new NotFoundException('Archived project not found.');
+    }
+    const restored = await this.prisma.project.update({
+      where: { id: projectId },
+      data: { status: ProjectStatus.ACTIVE },
+      select: { id: true, workspaceId: true, name: true, status: true, updatedAt: true },
+    });
+    await this.prisma.auditEvent.create({
+      data: {
+        actorUserId: userId,
+        action: 'project.restore',
+        resourceType: 'project',
+        resourceId: projectId,
+        outcome: 'SUCCESS',
+        metadata: { projectId },
+      },
+    });
+    return restored;
+  }
 }
