@@ -57,4 +57,9 @@ export class ProjectController {
   archive(@Req() request: AuthenticatedRequest, @Param('projectId') projectId: string) {
     return this.projects.archive(request.user.sub, projectId);
   }
+
+  @Post('projects/:projectId/restore')
+  restore(@Req() request: AuthenticatedRequest, @Param('projectId') projectId: string) {
+    return this.projects.restore(request.user.sub, projectId);
+  }
 }
