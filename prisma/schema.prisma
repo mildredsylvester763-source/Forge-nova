@@ -123,6 +123,7 @@ model User {
   ownedProjects   Project[]     @relation("ProjectOwner")
   auditEvents     AuditEvent[]  @relation("AuditActor")
   sessions        AuthSession[]
+  createdApiKeys ApiKey[]        @relation("ApiKeyCreator")
 
   @@index([status, createdAt])
 }
@@ -151,6 +152,7 @@ model Organization {
   updatedAt   DateTime     @updatedAt
   memberships Membership[]
   workspaces  Workspace[]
+  apiKeys     ApiKey[]
 
   @@index([name])
 }
@@ -513,4 +515,30 @@ model ReferenceDocument {
 
   @@index([applicationId, createdAt])
   @@index([applicationId, status, updatedAt])
+}
+
+enum ApiKeyScope {
+  READ_ORGANIZATION
+  READ_PROJECTS
+  READ_APPLICATIONS
+}
+
+model ApiKey {
+  id             String        @id @default(cuid())
+  organizationId String
+  name           String
+  hashedKey      String        @unique
+  displayHint    String
+  scopes         ApiKeyScope[]
+  createdBy      String?
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  lastUsedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator        User?         @relation("ApiKeyCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, revokedAt])
+  @@index([expiresAt])
 }
