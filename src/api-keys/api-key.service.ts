@@ -164,7 +164,7 @@ export class ApiKeyService {
       { revokedAt: key.revokedAt, expiresAt: key.expiresAt },
       new Date(),
     );
-    if (!('usable' in usable)) return null;
+    if (typeof usable === 'string') return null;
 
     // Last-used bookkeeping must never block authentication.
     await this.prisma.apiKey
