@@ -299,7 +299,7 @@ suite('GENESIS API key product flows (real app, real database)', () => {
       {},
       hank.tokens.accessToken,
     );
-    expect(revoke.status).toBe(200);
+    expect(revoke.status).toBe(201);
 
     expect((await genapi('me', fullKey)).status).toBe(401);
 
@@ -335,7 +335,7 @@ suite('GENESIS API key product flows (real app, real database)', () => {
         hank.tokens.accessToken,
       );
     const raced = await Promise.all([revoke(), revoke()]);
-    expect(raced.map((response) => response.status).sort((a, b) => a - b)).toEqual([200, 404]);
+    expect(raced.map((response) => response.status).sort((a, b) => a - b)).toEqual([201, 404]);
     expect((await genapi('me', key)).status).toBe(401);
   });
 
