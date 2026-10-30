@@ -194,7 +194,8 @@ export class FileService {
     expectedCurrentRevision: number,
   ) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
-    return this.prisma.$transaction(async (tx) => {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       const current = await tx.applicationFile.findFirst({
         where: { id: fileId, applicationId },
       });
@@ -251,12 +252,23 @@ export class FileService {
         contentHash: target.contentHash,
         isDeleted: false,
       };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      // Serializable transaction write conflict: a restore racing another write
+      // on the same file must surface as a clean, retryable conflict - never a 500.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+        throw new ConflictException(
+          'The file changed concurrently; read it again before retrying.',
+        );
+      }
+      throw error;
+    }
   }
 
   async delete(userId: string, applicationId: string, fileId: string, expectedRevision: number) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
-    return this.prisma.$transaction(async (tx) => {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       const current = await tx.applicationFile.findFirst({
         where: { id: fileId, applicationId, isDeleted: false },
       });
@@ -289,7 +301,17 @@ export class FileService {
         },
       });
       return { id: current.id, path: current.path, revision: nextRevision, deleted: true };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      // Serializable transaction write conflict: a delete racing another write
+      // on the same file must surface as a clean, retryable conflict - never a 500.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+        throw new ConflictException(
+          'The file changed concurrently; read it again before retrying.',
+        );
+      }
+      throw error;
+    }
   }
 
   private safeFile<T extends { content: string }>(file: T) {
