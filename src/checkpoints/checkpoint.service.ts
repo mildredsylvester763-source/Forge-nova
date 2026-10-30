@@ -196,8 +196,12 @@ export class CheckpointService {
               `The immutable revision for ${snapshotFile.path} is unavailable; restore was rolled back.`,
             );
           }
+          // Idempotency law: compare CONTENT and file state, not revision numbers.
+          // A restore replays the same immutable content, so after one restore the
+          // live revision number is higher than the snapshot while the content is
+          // identical. Comparing revisions made every replay (including the loser
+          // of a double-tap race) rewrite the file as a pointless duplicate revision.
           if (
-            current.revision === snapshotFile.revision &&
             current.contentHash === snapshotFile.contentHash &&
             current.isDeleted === snapshotFile.isDeleted &&
             current.language === snapshotFile.language
