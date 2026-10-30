@@ -20,6 +20,7 @@ import { CheckpointModule } from './checkpoints/checkpoint.module';
 import { VerificationModule } from './verification/verification.module';
 import { ReferencesModule } from './references/references.module';
 import { DeploymentModule } from './deployments/deployment.module';
+import { ApiKeyModule } from './api-keys/api-key.module';
 import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
 import { validateEnvironment } from './common/config/env.validation';
@@ -51,6 +52,7 @@ import { validateEnvironment } from './common/config/env.validation';
     VerificationModule,
     ReferencesModule,
     DeploymentModule,
+    ApiKeyModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
