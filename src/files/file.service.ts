@@ -154,6 +154,13 @@ export class FileService {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('A file with this path already exists.');
       }
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+        // Serializable transaction write conflict: two writers raced on the same
+        // file. The loser must get a clean, retryable conflict - never a 500.
+        throw new ConflictException(
+          'The file changed concurrently; read it again before retrying.',
+        );
+      }
       throw error;
     }
   }
