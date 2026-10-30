@@ -296,7 +296,7 @@ suite('GENESIS job, checkpoint, and planning-lease races (real app, real databas
       api('POST', '/applications/' + applicationId + '/jobs/' + jobId + '/cancel', {}, hans.tokens.accessToken),
       jobs.complete(jobId, 'racer-worker', { outcome: 'race-tested' } as Prisma.InputJsonValue),
     ]);
-    expect(cancelSettled.status).toBe('fulfilled');
+    if (cancelSettled.status !== 'fulfilled') throw new Error('The cancel request did not settle.');
     const cancel = cancelSettled.value;
     expect(cancel.status).toBe(201);
 
@@ -380,9 +380,10 @@ suite('GENESIS job, checkpoint, and planning-lease races (real app, real databas
       jobs.claimNext('rescuer'),
       api('POST', '/applications/' + applicationId + '/jobs/' + jobId + '/cancel', {}, hans.tokens.accessToken),
     ]);
-    expect(cancelSettled.status).toBe('fulfilled');
-    expect(cancelSettled.value.status).toBe(201);
-    expect(cancelSettled.value.body.cancellationRequested).toBe(true);
+    if (cancelSettled.status !== 'fulfilled') throw new Error('The cancel request did not settle.');
+    const cancelResponse = cancelSettled.value;
+    expect(cancelResponse.status).toBe(201);
+    expect(cancelResponse.body.cancellationRequested).toBe(true);
 
     const claim = claimSettled.status === 'fulfilled' ? claimSettled.value : null;
     if (claim && claim.id !== jobId) await revertForeignClaim(claim.id);
