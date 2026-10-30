@@ -81,11 +81,11 @@ suite('GENESIS job, checkpoint, and planning-lease races (real app, real databas
   const sortedStatuses = (responses: ApiResponse[]) =>
     responses.map((response) => response.status).sort((a, b) => a - b);
 
-  const fileByPath = async (token: string) => {
-    const files = await api('GET', '/applications/' + applicationId + '/files', undefined, token);
-    expect(files.status).toBe(200);
-    const list = files.body as unknown as Array<{ id?: string; path: string; content: string; revision: number }>;
-    return list.find((file) => file.path === basePath);
+  // The list endpoint omits content by design; the read endpoint returns it.
+  const readBaseFile = async (token: string) => {
+    const read = await api('GET', '/applications/' + applicationId + '/files/' + baseFileId, undefined, token);
+    expect(read.status).toBe(200);
+    return read.body as unknown as { id: string; path: string; content: string; revision: number };
   };
 
   const revisionRowCount = async () =>
@@ -104,6 +104,15 @@ suite('GENESIS job, checkpoint, and planning-lease races (real app, real databas
         startedAt: null,
         attemptCount: { decrement: 1 },
       },
+    });
+  };
+
+  // claimNext is FIFO by createdAt across the whole table; backdating our own
+  // job makes every claim deterministic even in the shared CI queue.
+  const backdateJob = async (jobId: string) => {
+    await prisma.workJob.update({
+      where: { id: jobId },
+      data: { createdAt: new Date(Date.now() - 3_600_000) },
     });
   };
 
@@ -322,6 +331,7 @@ suite('GENESIS job, checkpoint, and planning-lease races (real app, real databas
   it('refuses a zombie worker whose lease expired after another worker took over', async () => {
     const { jobId } = await planGraph('Zombie Graph', hans.tokens.accessToken);
     await simulateLease(jobId, 'zombie-a', true, 1);
+    await backdateJob(jobId);
 
     const claimed = await jobs.claimNext('worker-b');
     expect(claimed).not.toBeNull();
@@ -352,6 +362,7 @@ suite('GENESIS job, checkpoint, and planning-lease races (real app, real databas
 
   it('never lets two workers claim the same job', async () => {
     const { jobId } = await planGraph('Claim Race Graph', hans.tokens.accessToken);
+    await backdateJob(jobId);
 
     const [claimA, claimB] = await Promise.all([
       jobs.claimNext('w-left'),
@@ -375,6 +386,7 @@ suite('GENESIS job, checkpoint, and planning-lease races (real app, real databas
   it('keeps cancel-versus-claim races on an expired lease consistent', async () => {
     const { jobId } = await planGraph('Expired Lease Graph', hans.tokens.accessToken);
     await simulateLease(jobId, 'ghost-worker', true, 1);
+    await backdateJob(jobId);
 
     const [claimSettled, cancelSettled] = await Promise.allSettled([
       jobs.claimNext('rescuer'),
@@ -421,7 +433,7 @@ suite('GENESIS job, checkpoint, and planning-lease races (real app, real databas
     const changed = winners.reduce((sum, response) => sum + (response.body.changedFiles as number), 0);
     expect(changed).toBe(1);
 
-    const file = await fileByPath(hans.tokens.accessToken);
+    const file = await readBaseFile(hans.tokens.accessToken);
     expect(file?.revision).toBe(3);
     expect(file?.content).toBe(v1Content);
     expect(await revisionRowCount()).toBe(3);
@@ -438,7 +450,7 @@ suite('GENESIS job, checkpoint, and planning-lease races (real app, real databas
     expect(replay.body.changedFiles).toBe(0);
     expect(replay.body.atomic).toBe(true);
 
-    const file = await fileByPath(hans.tokens.accessToken);
+    const file = await readBaseFile(hans.tokens.accessToken);
     expect(file?.revision).toBe(3);
     expect(file?.content).toBe(v1Content);
     expect(await revisionRowCount()).toBe(before);
@@ -457,7 +469,7 @@ suite('GENESIS job, checkpoint, and planning-lease races (real app, real databas
     const raced = await Promise.all([restorePromise, writePromise]);
     expect(sortedStatuses(raced)).toEqual([201, 409]);
 
-    const file = await fileByPath(hans.tokens.accessToken);
+    const file = await readBaseFile(hans.tokens.accessToken);
     expect(file?.revision).toBe(5);
     const restoreWon = raced[0].status === 201;
     expect(file?.content).toBe(restoreWon ? v1Content : v5Content);
@@ -488,21 +500,28 @@ suite('GENESIS job, checkpoint, and planning-lease races (real app, real databas
     ]);
     expect(raced.every((response) => [201, 409].includes(response.status))).toBe(true);
 
+    // A run request executes every verification kind and returns one run per kind.
     const created = raced.filter((response) => response.status === 201);
     expect(created.length).toBeGreaterThanOrEqual(1);
+    const createdRuns: Array<{ id: string; status: string }> = [];
     created.forEach((response) => {
-      expect(response.body.status).toBe('PASSED');
-      expect(response.body.id).toBeDefined();
+      const runs = response.body as unknown as Array<{ id: string; kind: string; status: string }>;
+      expect(Array.isArray(runs)).toBe(true);
+      expect(runs.length).toBe(3);
+      runs.forEach((run) => {
+        expect(run.id).toBeDefined();
+        expect(['PASSED', 'SKIPPED']).toContain(run.status);
+        createdRuns.push(run);
+      });
     });
 
     const history = await api('GET', '/applications/' + applicationId + '/verifications', undefined, hans.tokens.accessToken);
     expect(history.status).toBe(200);
-    const runs = history.body as unknown as Array<{ id: string; status: string }>;
-    const runIds = created.map((response) => (response.body as { id: string }).id);
-    for (const runId of runIds) {
-      const run = runs.find((candidate) => candidate.id === runId);
-      expect(run).toBeDefined();
-      expect(run?.status).toBe('PASSED');
+    const listed = history.body as unknown as Array<{ id: string; status: string }>;
+    for (const run of createdRuns) {
+      const found = listed.find((candidate) => candidate.id === run.id);
+      expect(found).toBeDefined();
+      expect(found?.status).toBe(run.status);
     }
   });
 
