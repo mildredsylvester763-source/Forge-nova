@@ -105,7 +105,14 @@ export class ReferencesService {
       throw new NotFoundException('Reference not found.');
     }
 
-    await this.prisma.referenceDocument.delete({ where: { id: referenceId } });
+    // Guarded delete: two members pressing delete at the same time must get
+    // exactly one success and one clean 404 - never a raw Prisma P2025 as a 500.
+    const deleted = await this.prisma.referenceDocument.deleteMany({
+      where: { id: referenceId },
+    });
+    if (deleted.count !== 1) {
+      throw new NotFoundException('Reference not found.');
+    }
     await this.prisma.auditEvent.create({
       data: {
         actorUserId: userId,
@@ -163,7 +170,15 @@ export class ReferencesService {
           extractedAt: new Date(),
         },
         select: REFERENCE_SELECT,
-      });
+      })
+        .catch((error: unknown) => {
+          // The reference may have been deleted while extraction was running;
+          // that is an honest 404, never a raw Prisma P2025 as a 500.
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+            throw new NotFoundException('Reference not found.');
+          }
+          throw error;
+        });
 
       await this.prisma.auditEvent.create({
         data: {
@@ -183,13 +198,17 @@ export class ReferencesService {
       return updated;
     } catch (error) {
       const reason = error instanceof Error ? error.message.slice(0, 500) : 'Unknown extraction failure.';
-      await this.prisma.referenceDocument.update({
+      const marked = await this.prisma.referenceDocument.updateMany({
         where: { id: reference.id },
         data: {
           status: ReferenceStatus.EXTRACTION_FAILED,
           extractionError: reason,
         },
       });
+      if (marked.count === 0) {
+        // The reference vanished (e.g. deleted mid-extraction): an honest 404.
+        throw new NotFoundException('Reference not found.');
+      }
       throw error instanceof Error ? error : new BadRequestException(reason);
     }
   }
