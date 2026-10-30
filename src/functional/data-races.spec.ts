@@ -239,7 +239,9 @@ suite('GENESIS data races: deployments, references, conversations, file delete/r
     const del = () => api('DELETE', '/applications/' + raceAppId + '/files/' + fileId + '/revision/2', undefined, dana.tokens.accessToken);
     const put = () => api('POST', '/applications/' + raceAppId + '/files', { path: 'race/delete-vs-write.ts', content: 'export const v3 = 3;', language: 'typescript', expectedRevision: 2 }, erin.tokens.accessToken);
     const raced = await Promise.all([del(), put()]);
-    expect(sortedStatuses(raced)).toEqual([200, 409]);
+    // The winner is whichever lands first: the delete ends 200, the write 201.
+    const statuses = sortedStatuses(raced);
+    expect(statuses).toEqual(raced[0].status === 200 ? [200, 409] : [201, 409]);
 
     const deleteWon = raced[0].status === 200;
     const read = await api('GET', '/applications/' + raceAppId + '/files/' + fileId, undefined, dana.tokens.accessToken);
