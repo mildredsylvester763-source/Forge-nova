@@ -87,19 +87,33 @@ export class JobQueueService {
         },
       });
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        if (idempotencyKey) {
-          const raced = await this.prisma.workJob.findFirst({
+      const isInsertRace = error instanceof Prisma.PrismaClientKnownRequestError
+        && (error.code === 'P2002' || error.code === 'P2034');
+      if (isInsertRace && idempotencyKey) {
+        // A concurrent request created the same idempotency key (unique
+        // violation) or the insert collided with a concurrent write. Re-read
+        // the raced row with a short bounded wait so a commit that is still
+        // in flight becomes visible, then converge on it when the payload
+        // matches. The caller decides how a payload mismatch is handled.
+        let raced = await this.prisma.workJob.findFirst({
+          where: { applicationId, idempotencyKey },
+        });
+        for (let attempt = 0; attempt < 10 && raced === null; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          raced = await this.prisma.workJob.findFirst({
             where: { applicationId, idempotencyKey },
           });
-          if (
-            raced &&
-            raced.type === type &&
-            this.stableStringify(raced.input as Prisma.InputJsonValue) === serialized
-          ) {
-            return raced;
-          }
         }
+        if (
+          raced &&
+          raced.type === type &&
+          this.stableStringify(raced.input as Prisma.InputJsonValue) === serialized
+        ) {
+          return raced;
+        }
+        throw new ConflictException('A job with this idempotency key already exists.');
+      }
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('A job with this idempotency key already exists.');
       }
       throw error;
