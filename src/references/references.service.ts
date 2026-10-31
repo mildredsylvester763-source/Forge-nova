@@ -202,6 +202,38 @@ export class ReferencesService {
 
   async remove(userId: string, applicationId: string, referenceId: string) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.removeForActor({ kind: 'user', userId }, applicationId, referenceId);
+  }
+
+  /**
+   * Key-authenticated reference delete. Grounded in the market leaders:
+   * a GitHub fine-grained token needs Contents write to delete a file,
+   * and the OpenAI file delete runs straight from a Bearer API key and
+   * answers with the honest id plus deleted shape. The key IS the
+   * authorization: the writable tenant bound refuses foreign, missing,
+   * and archived applications with one uniform 404, and a landed delete
+   * is attributed to the acting key with exactly one audit row.
+   */
+  async removeForKey(key: AuthenticatedApiKey, applicationId: string, referenceId: string) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    return this.removeForActor(keyActorFromApiKey(key), applicationId, referenceId);
+  }
+
+  /**
+   * The one delete core shared by the JWT route and the genapi key
+   * route, so the two surfaces can never drift apart: the same guarded
+   * delete where two simultaneous callers land exactly one success and
+   * one clean 404 - never a raw Prisma P2025 as a 500 - the same
+   * honest audit row per landed delete, and the same response shape.
+   * A keyed delete attributes to the key creator and stamps the acting
+   * key into the trail; a user delete keeps its existing row shape.
+   */
+  private async removeForActor(
+    actor: WriteActor,
+    applicationId: string,
+    referenceId: string,
+  ) {
+    const attributedUserId = actorAttribution(actor);
     const reference = await this.prisma.referenceDocument.findFirst({
       where: { id: referenceId, applicationId },
       select: { id: true, title: true, status: true },
@@ -210,7 +242,7 @@ export class ReferencesService {
       throw new NotFoundException('Reference not found.');
     }
 
-    // Guarded delete: two members pressing delete at the same time must get
+    // Guarded delete: two callers pressing delete at the same time must get
     // exactly one success and one clean 404 - never a raw Prisma P2025 as a 500.
     const deleted = await this.prisma.referenceDocument.deleteMany({
       where: { id: referenceId },
@@ -220,12 +252,17 @@ export class ReferencesService {
     }
     await this.prisma.auditEvent.create({
       data: {
-        actorUserId: userId,
+        actorUserId: attributedUserId,
+        organizationId: actorAuditOrganization(actor),
         action: 'application.reference.delete',
         resourceType: 'reference',
         resourceId: referenceId,
         outcome: 'SUCCESS',
-        metadata: { applicationId, title: reference.title, previousStatus: reference.status },
+        metadata: actorAuditMetadata(actor, {
+          applicationId,
+          title: reference.title,
+          previousStatus: reference.status,
+        }),
       },
     });
     return { deleted: true, id: referenceId };
