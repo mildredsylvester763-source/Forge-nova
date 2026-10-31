@@ -520,4 +520,108 @@ suite('genapi key-authenticated context flows (real app, real database)', () => 
       expect(refused.status).toBe(401);
     }
   });
+  it('races a keyed reference inspect against a JWT reference delete without ever surfacing a 500', async () => {
+    const raceApp = await api(
+      'POST',
+      '/projects/' + projectIdA + '/applications',
+      { name: 'Genapi Race App One' },
+      hank.tokens.accessToken,
+    );
+    expect(raceApp.status).toBe(201);
+    const raceAppId = (raceApp.body as { id: string }).id;
+
+    const doomed = await createReference(hank, raceAppId, 'Doomed Ref', 'A reference that will be deleted mid-race.');
+    const raced = await Promise.all([
+      genapiGet('applications/' + raceAppId + '/references/' + doomed.id, readerKey),
+      api('DELETE', '/applications/' + raceAppId + '/references/' + doomed.id, undefined, hank.tokens.accessToken),
+    ]);
+    expect([200, 404]).toContain(raced[0].status);
+    expect(raced[1].status).toBe(200);
+
+    const after = await genapiGet('applications/' + raceAppId + '/references/' + doomed.id, readerKey);
+    expect(after.status).toBe(404);
+    expect((after.body as { message: string }).message).toBe('Reference not found.');
+
+    const list = await genapiGet('applications/' + raceAppId + '/references', readerKey);
+    expect(list.status).toBe(200);
+    expect(list.body as unknown as Array<unknown>).toHaveLength(0);
+  });
+
+  it('races a keyed reference list against a JWT reference create with a valid snapshot either way', async () => {
+    const raceApp = await api(
+      'POST',
+      '/projects/' + projectIdA + '/applications',
+      { name: 'Genapi Race App Two' },
+      hank.tokens.accessToken,
+    );
+    expect(raceApp.status).toBe(201);
+    const raceAppId = (raceApp.body as { id: string }).id;
+
+    const seeded = await createReference(hank, raceAppId, 'Seeded Ref', 'A reference already present before the race.');
+    const raced = await Promise.all([
+      genapiGet('applications/' + raceAppId + '/references', readerKey),
+      createReference(hank, raceAppId, 'Racing Ref', 'A reference created while the keyed list was in flight.'),
+    ]);
+    expect(raced[0].status).toBe(200);
+    const snapshot = raced[0].body as unknown as Array<{ id: string }>;
+    expect(snapshot.length).toBeGreaterThanOrEqual(1);
+    expect(snapshot.length).toBeLessThanOrEqual(2);
+
+    const after = await genapiGet('applications/' + raceAppId + '/references', readerKey);
+    expect(after.status).toBe(200);
+    const ids = (after.body as unknown as Array<{ id: string }>).map((item) => item.id);
+    expect(ids).toHaveLength(2);
+    expect(ids).toContain(seeded.id);
+  });
+
+  it('races key revocation against in-flight keyed reads without ever surfacing a 500', async () => {
+    const created = await createKey(hank.tokens.accessToken, organizationIdA, 'racing-doomed', ['READ_APPLICATIONS']);
+    expect(created.status).toBe(201);
+    const racingKey = (created.body as { key: string }).key;
+    const racingKeyId = (created.body as { id: string }).id;
+
+    const raced = await Promise.all([
+      genapiGet('applications/' + applicationIdA + '/conversations', racingKey),
+      genapiGet('applications/' + applicationIdA + '/references', racingKey),
+      api('POST', '/organizations/' + organizationIdA + '/api-keys/' + racingKeyId + '/revoke', {}, hank.tokens.accessToken),
+    ]);
+    expect([200, 401]).toContain(raced[0].status);
+    expect([200, 401]).toContain(raced[1].status);
+    expect(raced[2].status).toBe(201);
+
+    const afterConversations = await genapiGet('applications/' + applicationIdA + '/conversations', racingKey);
+    expect(afterConversations.status).toBe(401);
+    const afterReferences = await genapiGet('applications/' + applicationIdA + '/references', racingKey);
+    expect(afterReferences.status).toBe(401);
+  });
+
+  it('races a keyed read against a JWT archive and reads stay legal whichever way the race lands', async () => {
+    const raceApp = await api(
+      'POST',
+      '/projects/' + projectIdA + '/applications',
+      { name: 'Genapi Race App Three' },
+      hank.tokens.accessToken,
+    );
+    expect(raceApp.status).toBe(201);
+    const raceAppId = (raceApp.body as { id: string }).id;
+
+    const raced = await Promise.all([
+      genapiGet('applications/' + raceAppId + '/conversations', readerKey),
+      api('POST', '/projects/' + projectIdA + '/applications/' + raceAppId + '/archive', {}, hank.tokens.accessToken),
+    ]);
+    expect(raced[0].status).toBe(200);
+    expect(raced[1].status).toBe(201);
+
+    const after = await genapiGet('applications/' + raceAppId + '/references', readerKey);
+    expect(after.status).toBe(200);
+    expect(after.body as unknown as Array<unknown>).toHaveLength(0);
+
+    const write = await api(
+      'POST',
+      '/applications/' + raceAppId + '/conversations',
+      { title: 'Should be refused on an archived application.' },
+      hank.tokens.accessToken,
+    );
+    expect(write.status).toBe(404);
+  });
 });
