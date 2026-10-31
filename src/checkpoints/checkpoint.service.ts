@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { normalizeApplicationPath } from '../common/source/path-safety';
+import { WebhookService } from '../integrations/webhook.service';
 import { SecretScannerService } from '../security/secret-scanner.service';
 
 const MAX_CHECKPOINT_FILES = 500;
@@ -44,6 +45,7 @@ export class CheckpointService {
     private readonly prisma: PrismaService,
     private readonly access: AccessControlService,
     private readonly secrets: SecretScannerService,
+    private readonly events: WebhookService,
   ) {}
 
   async create(userId: string, applicationId: string, label: string) {
@@ -52,7 +54,7 @@ export class CheckpointService {
     if (!trimmedLabel) throw new BadRequestException('Checkpoint label cannot be blank.');
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const checkpoint = await this.prisma.$transaction(async (tx) => {
         const application = await this.requireWritableApplication(tx, userId, applicationId);
         const files = await tx.applicationFile.findMany({
           where: { applicationId },
@@ -109,6 +111,12 @@ export class CheckpointService {
         });
         return { ...checkpoint, fileCount: files.length };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30_000 });
+      await this.events.emitForApplication(applicationId, 'checkpoint.created', {
+        applicationId,
+        checkpointId: checkpoint.id,
+        label: trimmedLabel,
+      });
+      return checkpoint;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
         throw new ConflictException('Application state changed while the checkpoint was being created.');
@@ -141,7 +149,7 @@ export class CheckpointService {
   async restore(userId: string, applicationId: string, checkpointId: string) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async (tx) => {
         const application = await this.requireWritableApplication(tx, userId, applicationId);
         const checkpoint = await tx.checkpoint.findFirst({
           where: { id: checkpointId, applicationId },
@@ -291,6 +299,12 @@ export class CheckpointService {
           atomic: true,
         };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30_000 });
+      await this.events.emitForApplication(applicationId, 'checkpoint.restored', {
+        applicationId,
+        checkpointId: result.checkpointId,
+        changedFiles: result.changedFiles,
+      });
+      return result;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
         throw new ConflictException('Application state changed concurrently; checkpoint restore was rolled back.');
