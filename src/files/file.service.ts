@@ -80,6 +80,53 @@ export class FileService {
     return this.writeAsActor(keyActorFromApiKey(key), applicationId, dto);
   }
 
+  /**
+   * Key-authenticated file listing. Reads stay possible on archived
+   * applications; foreign and missing applications answer with the
+   * same uniform 404. Listings never include file content.
+   */
+  async listForKey(key: AuthenticatedApiKey, applicationId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    return this.prisma.applicationFile.findMany({
+      where: { applicationId, isDeleted: false },
+      select: {
+        id: true,
+        applicationId: true,
+        path: true,
+        language: true,
+        contentHash: true,
+        revision: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { path: 'asc' },
+    });
+  }
+
+  /**
+   * Key-authenticated file read. The tenant bound is the organization;
+   * deleted files answer 404 exactly like missing ones.
+   */
+  async readForKey(key: AuthenticatedApiKey, applicationId: string, fileId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    const file = await this.prisma.applicationFile.findFirst({
+      where: { id: fileId, applicationId, isDeleted: false },
+      select: {
+        id: true,
+        applicationId: true,
+        path: true,
+        language: true,
+        content: true,
+        contentHash: true,
+        revision: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (!file) throw new NotFoundException('Application file not found.');
+    return file;
+  }
+
   private async writeAsActor(actor: WriteActor, applicationId: string, dto: WriteFileDto) {
     const attributedUserId = actorAttribution(actor);
     const path = normalizeApplicationPath(dto.path);
