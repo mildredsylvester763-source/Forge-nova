@@ -91,6 +91,31 @@ export class AccessControlService {
     return application;
   }
 
+  /**
+   * Key-authenticated tenant bound for genapi reads: the application must
+   * live inside the key organization. Reads stay possible on archived
+   * applications (archive blocks writes, not reads), mirroring the
+   * read-only semantics of the JWT surface. Foreign and missing
+   * applications answer with the same uniform 404.
+   */
+  async requireReadableApplicationInOrganization(
+    organizationId: string,
+    applicationId: string,
+  ): Promise<{ id: string; projectId: string }> {
+    const application = await this.prisma.application.findFirst({
+      where: {
+        id: applicationId,
+        project: {
+          status: { not: 'DELETED' },
+          workspace: { organizationId },
+        },
+      },
+      select: { id: true, projectId: true },
+    });
+    if (!application) throw new NotFoundException('Application not found.');
+    return application;
+  }
+
   async requireWorkGraphRole(
     userId: string,
     graphId: string,
