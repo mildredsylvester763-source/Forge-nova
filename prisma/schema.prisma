@@ -1,6 +1,612 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  DEVELOPER
+  BILLING
+  VIEWER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+  DELETED
+}
+
+enum ApplicationStatus {
+  PLANNING
+  BUILDING
+  READY
+  DEPLOYED
+  DEGRADED
+  ARCHIVED
+}
+
+enum ConversationRole {
+  SYSTEM
+  USER
+  ASSISTANT
+  TOOL
+}
+
+enum JobStatus {
+  QUEUED
+  RESERVED
+  RUNNING
+  WAITING_FOR_APPROVAL
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  PAUSED
+}
+
+enum JobType {
+  REQUIREMENTS_ANALYSIS
+  CODE_GENERATION
+  CODE_MODIFICATION
+  BUILD
+  TEST
+  SECURITY_SCAN
+  DEPLOYMENT
+  RESEARCH
+  DATA_PROCESSING
+  MANAGED_OPERATION
+  API_TASK
+}
+
+enum AuditOutcome {
+  SUCCESS
+  DENIED
+  FAILURE
+}
+
+enum WorkGraphStatus {
+  DRAFT
+  PLANNING
+  READY
+  EXECUTING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum WorkNodeStatus {
+  RECORDED
+  PENDING
+  READY
+  RUNNING
+  WAITING_FOR_APPROVAL
+  SUCCEEDED
+  FAILED
+  SKIPPED
+  CANCELLED
+}
+
+enum WorkNodeType {
+  REQUIREMENT
+  ANALYSIS
+  GENERATE
+  MODIFY
+  BUILD
+  TEST
+  SECURITY_SCAN
+  DEPLOY
+  VERIFY
+  EXTERNAL_TOOL
+}
+
+enum WorkRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model User {
+  id              String        @id @default(cuid())
+  email           String        @unique
+  emailVerifiedAt DateTime?
+  displayName     String?
+  passwordHash    String?
+  status          String        @default("ACTIVE")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  memberships     Membership[]
+  ownedProjects   Project[]     @relation("ProjectOwner")
+  auditEvents     AuditEvent[]  @relation("AuditActor")
+  sessions        AuthSession[]
+  createdApiKeys ApiKey[]        @relation("ApiKeyCreator")
+
+  @@index([status, createdAt])
+}
+
+model AuthSession {
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String    @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  lastUsedAt       DateTime?
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime  @default(now())
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt, revokedAt])
+}
+
+model Organization {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  memberships Membership[]
+  workspaces  Workspace[]
+  apiKeys     ApiKey[]
+  integrations       Integration[]
+  webhookEndpoints   WebhookEndpoint[]
+  webhookDeliveries  WebhookDelivery[]
+
+  @@index([name])
+}
+
+model Membership {
+  id             String         @id @default(cuid())
+  userId         String
+  organizationId String
+  role           MembershipRole @default(VIEWER)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId, role])
+}
+
+model Workspace {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  slug           String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  projects       Project[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, createdAt])
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  workspaceId String
+  ownerId     String
+  name        String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner       User          @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  applications Application[]
+
+  @@index([workspaceId, status, updatedAt])
+  @@index([ownerId, createdAt])
+}
+
+model Application {
+  id             String            @id @default(cuid())
+  projectId      String
+  name           String
+  description    String?
+  status         ApplicationStatus @default(PLANNING)
+  framework      String?
+  runtime        String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  conversations  Conversation[]
+  jobs           WorkJob[]
+  checkpoints    Checkpoint[]
+  deployments    Deployment[]
+  files          ApplicationFile[]
+  workGraphs     WorkGraph[]
+  resourceEvents ResourceUsageEvent[]
+  verifications  VerificationRun[]
+  references    ReferenceDocument[]
+
+  @@index([projectId, status, updatedAt])
+}
+
+model Conversation {
+  id            String       @id @default(cuid())
+  applicationId String
+  title         String?
+  archivedAt    DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  application   Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  messages      Message[]
+
+  @@index([applicationId, archivedAt, updatedAt])
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  conversationId String
+  role           ConversationRole
+  content        String           @db.Text
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+model Checkpoint {
+  id            String      @id @default(cuid())
+  applicationId String
+  label         String
+  sourceRef     String?
+  manifest      Json
+  createdBy     String?
+  createdAt     DateTime    @default(now())
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt])
+}
+
+model WorkJob {
+  id             String      @id @default(cuid())
+  applicationId  String
+  type           JobType
+  status         JobStatus   @default(QUEUED)
+  idempotencyKey String?
+  input          Json
+  result         Json?
+  errorCode      String?
+  errorMessage   String?     @db.Text
+  attemptCount   Int         @default(0)
+  reservedAt     DateTime?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  lockedBy       String?
+  leaseExpiresAt DateTime?
+  heartbeatAt    DateTime?
+  cancelRequestedAt DateTime?
+  maxAttempts    Int         @default(3)
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  resourceEvents ResourceUsageEvent[]
+  verifications  VerificationRun[]
+
+  @@unique([applicationId, idempotencyKey])
+  @@index([status, createdAt])
+  @@index([applicationId, createdAt])
+}
+
+model Deployment {
+  id            String      @id @default(cuid())
+  applicationId String
+  environment   String
+  provider      String?
+  status        String      @default("PENDING")
+  sourceRef     String?
+  externalId    String?
+  url           String?
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, environment, createdAt])
+  @@index([status, createdAt])
+}
+
+model AuditEvent {
+  id             String       @id @default(cuid())
+  actorUserId    String?
+  organizationId String?
+  action         String
+  resourceType   String
+  resourceId     String?
+  outcome        AuditOutcome
+  requestId      String?
+  ipAddress      String?
+  userAgent      String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  actor          User?        @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([resourceType, resourceId, createdAt])
+  @@index([action, createdAt])
+}
+
+model ApplicationFile {
+  id            String        @id @default(cuid())
+  applicationId String
+  path          String
+  language      String?
+  content       String        @db.Text
+  contentHash   String
+  revision      Int           @default(1)
+  isDeleted     Boolean       @default(false)
+  createdBy     String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  application   Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  revisions     FileRevision[]
+
+  @@unique([applicationId, path])
+  @@index([applicationId, isDeleted, updatedAt])
+}
+
+model FileRevision {
+  id           String          @id @default(cuid())
+  fileId       String
+  revision     Int
+  content      String          @db.Text
+  contentHash  String
+  isDeleted    Boolean         @default(false)
+  createdBy    String?
+  createdAt    DateTime        @default(now())
+  file         ApplicationFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, revision])
+  @@index([fileId, createdAt])
+}
+
+model WorkGraph {
+  id            String          @id @default(cuid())
+  applicationId String
+  title         String
+  sourcePrompt  String          @db.Text
+  status        WorkGraphStatus @default(DRAFT)
+  version       Int             @default(1)
+  planningToken String?
+  planningLeaseExpiresAt DateTime?
+  createdBy     String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  application   Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  nodes         WorkNode[]
+
+  @@index([applicationId, status, updatedAt])
+}
+
+model WorkNode {
+  id                   String          @id @default(cuid())
+  graphId              String
+  key                  String
+  type                 WorkNodeType
+  title                String
+  description          String?         @db.Text
+  status               WorkNodeStatus  @default(PENDING)
+  riskLevel            WorkRiskLevel   @default(LOW)
+  requiresApproval     Boolean         @default(false)
+  input                Json
+  output               Json?
+  estimatedResources   Json?
+  actualResources      Json?
+  attemptCount         Int             @default(0)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  graph                WorkGraph       @relation(fields: [graphId], references: [id], onDelete: Cascade)
+  incomingDependencies WorkDependency[] @relation("DependencyTarget")
+  outgoingDependencies WorkDependency[] @relation("DependencySource")
+
+  @@unique([graphId, key])
+  @@index([graphId, status, createdAt])
+  @@index([status, riskLevel, createdAt])
+}
+
+model WorkDependency {
+  id         String   @id @default(cuid())
+  fromNodeId String
+  toNodeId   String
+  createdAt  DateTime @default(now())
+  fromNode   WorkNode @relation("DependencySource", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode     WorkNode @relation("DependencyTarget", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([fromNodeId, toNodeId])
+  @@index([toNodeId])
+}
+
+model ResourceUsageEvent {
+  id             String      @id @default(cuid())
+  applicationId  String
+  jobId          String?
+  eventType      String
+  provider       String?
+  model          String?
+  unit           String
+  quantity       Decimal     @db.Decimal(24, 8)
+  dimensions     Json?
+  idempotencyKey String?
+  occurredAt     DateTime    @default(now())
+  createdAt      DateTime    @default(now())
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  job            WorkJob?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@unique([applicationId, idempotencyKey])
+  @@index([applicationId, occurredAt])
+  @@index([jobId, occurredAt])
+  @@index([eventType, occurredAt])
+}
+
+
+enum VerificationStatus {
+  PENDING
+  RUNNING
+  PASSED
+  FAILED
+  SKIPPED
+  ERROR
+}
+
+enum VerificationKind {
+  STATIC_ANALYSIS
+  SECRET_SCAN
+  DEPENDENCY_AUDIT
+  BUILD
+  TEST
+}
+
+model VerificationRun {
+  id            String             @id @default(cuid())
+  applicationId String
+  jobId         String?
+  kind          VerificationKind
+  status        VerificationStatus @default(PENDING)
+  summary       String?            @db.Text
+  findings      Json?
+  evidence      Json?
+  triggeredBy   String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  application   Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  job           WorkJob?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([applicationId, kind, createdAt])
+  @@index([status, createdAt])
+}
+
+
+enum ReferenceKind {
+  SPEC
+  TRANSCRIPT
+  NOTES
+  OTHER
+}
+
+enum ReferenceStatus {
+  STORED
+  EXTRACTED
+  EXTRACTION_FAILED
+}
+
+model ReferenceDocument {
+  id              String          @id @default(cuid())
+  applicationId   String
+  title           String
+  kind            ReferenceKind
+  content         String          @db.Text
+  status          ReferenceStatus @default(STORED)
+  extraction      Json?
+  extractionError String?         @db.Text
+  extractedAt     DateTime?
+  createdBy       String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  application     Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@index([applicationId, status, updatedAt])
+}
+
 enum ApiKeyScope {
   READ_ORGANIZATION
   READ_PROJECTS
   READ_APPLICATIONS
   WRITE_APPLICATIONS
+}
+
+model ApiKey {
+  id             String        @id @default(cuid())
+  organizationId String
+  name           String
+  hashedKey      String        @unique
+  displayHint    String
+  scopes         ApiKeyScope[]
+  createdBy      String?
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  lastUsedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator        User?         @relation("ApiKeyCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, revokedAt])
+  @@index([expiresAt])
+}
+
+enum IntegrationStatus {
+  UNVERIFIED
+  CONNECTED
+  FAILED
+}
+
+model Integration {
+  id              String            @id @default(cuid())
+  organizationId  String
+  connectorId     String
+  name            String
+  status          IntegrationStatus @default(UNVERIFIED)
+  credentials     Json
+  lastTestedAt    DateTime?
+  lastTestStatus  String?
+  lastTestDetail  String?           @db.Text
+  createdBy       String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, connectorId, name])
+  @@index([organizationId, status, updatedAt])
+}
+
+model WebhookEndpoint {
+  id                 String            @id @default(cuid())
+  organizationId     String
+  url                String
+  secret             String
+  eventSubscriptions String[]
+  active             Boolean           @default(true)
+  lastSuccessAt      DateTime?
+  lastFailureAt      DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deliveries         WebhookDelivery[]
+
+  @@unique([organizationId, url])
+  @@index([organizationId, active, updatedAt])
+}
+
+model WebhookDelivery {
+  id             String          @id @default(cuid())
+  endpointId     String
+  organizationId String
+  eventName      String
+  payload        Json
+  status         String          @default("PENDING")
+  attempts       Int             @default(0)
+  nextAttemptAt  DateTime?
+  lastStatusCode Int?
+  lastError      String?         @db.Text
+  deliveredAt    DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  endpoint       WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, createdAt])
+  @@index([endpointId, createdAt])
 }
