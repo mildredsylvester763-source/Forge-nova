@@ -252,9 +252,15 @@ suite('GENESIS genapi audit trail flows (real app, real database)', () => {
       expect(['SUCCESS', 'DENIED', 'FAILURE']).toContain(row.outcome);
       expect(row.createdAt).toBeTruthy();
     }
-    const creation = rows.find((row) => row.action === 'organization.create');
-    expect(creation).toBeDefined();
-    expect(creation?.actor?.email).toBe(hank.email);
+    const registration = rows.find((row) => row.action === 'auth.register');
+    expect(registration).toBeDefined();
+    expect(registration?.actor?.email).toBe(hank.email);
+
+    const keyCreation = rows.find(
+      (row) => row.action === 'apikey.create' && row.metadata?.name === 'Audit Reader',
+    );
+    expect(keyCreation).toBeDefined();
+    expect(keyCreation?.actor?.email).toBe(hank.email);
   });
 
   it('shows keyed actions attributed to their acting key', async () => {
@@ -319,8 +325,13 @@ suite('GENESIS genapi audit trail flows (real app, real database)', () => {
     }
 
     const irisRows = auditRows(irisRead.body);
-    const irisCreation = irisRows.find((row) => row.action === 'organization.create');
-    expect(irisCreation?.actor?.email).toBe(iris.email);
+    const irisRegistration = irisRows.find((row) => row.action === 'auth.register');
+    expect(irisRegistration?.actor?.email).toBe(iris.email);
+    const irisKeyCreation = irisRows.find(
+      (row) => row.action === 'apikey.create' && row.metadata?.name === 'Foreign Reader',
+    );
+    expect(irisKeyCreation).toBeDefined();
+    expect(irisKeyCreation?.actor?.email).toBe(iris.email);
     const hankEmails = auditRows(hankRead.body)
       .map((row) => row.actor?.email)
       .filter((email): email is string => email !== undefined);
@@ -389,10 +400,21 @@ suite('GENESIS genapi audit trail flows (real app, real database)', () => {
       })),
     });
 
+    const total = await prisma.auditEvent.count({ where: { organizationId } });
+    expect(total).toBeGreaterThan(50);
+    const groundTruth = await prisma.auditEvent.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { id: true },
+    });
+    const truthIds = groundTruth.map((row) => row.id);
+
     const keyed = await auditRead(readerKey);
     expect(keyed.status).toBe(200);
     const keyedRows = auditRows(keyed.body);
     expect(keyedRows.length).toBe(50);
+    expect(keyedRows.map((row) => row.id)).toEqual(truthIds);
 
     const jwt = await api(
       'GET',
@@ -401,13 +423,14 @@ suite('GENESIS genapi audit trail flows (real app, real database)', () => {
       hank.tokens.accessToken,
     );
     expect(jwt.status).toBe(200);
-    expect(auditRows(jwt.body).length).toBe(50);
+    expect(auditRows(jwt.body).map((row) => row.id)).toEqual(truthIds);
     expect(keyedRows).toEqual(auditRows(jwt.body));
 
-    expect(keyedRows[0].metadata?.seeded).toBe(59);
-    expect(
-      new Date(keyedRows[0].createdAt).getTime(),
-    ).toBeGreaterThanOrEqual(new Date(keyedRows[49].createdAt).getTime());
+    for (let idx = 1; idx < keyedRows.length; idx += 1) {
+      expect(new Date(keyedRows[idx - 1].createdAt).getTime()).toBeGreaterThanOrEqual(
+        new Date(keyedRows[idx].createdAt).getTime(),
+      );
+    }
   });
 
   it('refuses keys without the organization read scope with one message', async () => {
