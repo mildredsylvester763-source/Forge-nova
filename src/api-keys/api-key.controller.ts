@@ -367,6 +367,31 @@ export class GenapiController {
   }
 
   /**
+   * Key-authenticated conversation archive. Grounded in the GitHub
+   * conversation lock: write access is required to lock an issue, a
+   * locked conversation blocks later comments, and repeat locks
+   * succeed. WRITE_APPLICATIONS grants the archive; the writable
+   * tenant bound refuses foreign, missing, and archived applications
+   * with one uniform 404; the conversation ownership check answers
+   * cross-application and unknown ids with the same uniform 404; and
+   * the response mirrors the JWT archive exactly, with no audit row
+   * because the JWT archive writes none.
+   */
+  @Post('applications/:applicationId/conversations/:conversationId/archive')
+  @RequireScopes('WRITE_APPLICATIONS')
+  archiveConversation(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('conversationId') conversationId: string,
+  ) {
+    return this.conversations.archiveForKey(
+      request.apiKey!,
+      applicationId,
+      conversationId,
+    );
+  }
+
+  /**
    * Key-authenticated reference listing, mirroring the JWT shape exactly
    * (newest first, the honest window of 100, full documents included).
    */
