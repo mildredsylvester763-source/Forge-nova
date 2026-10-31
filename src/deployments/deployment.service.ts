@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
+import { WebhookService } from '../integrations/webhook.service';
 import { SecretScannerService } from '../security/secret-scanner.service';
 import { assessReadiness, ReadinessFile, ReadinessReport, ReadinessVerificationSummary } from './engine/readiness.engine';
 
@@ -14,6 +15,7 @@ export class DeploymentService {
     private readonly prisma: PrismaService,
     private readonly access: AccessControlService,
     private readonly secretScanner: SecretScannerService,
+    private readonly events: WebhookService,
   ) {}
 
   async getReadiness(userId: string, applicationId: string): Promise<ReadinessReport> {
@@ -64,6 +66,13 @@ export class DeploymentService {
           adapter: 'none-configured',
         },
       },
+    });
+
+    await this.events.emitForApplication(applicationId, 'deployment.recorded', {
+      applicationId,
+      deploymentId: deployment.id,
+      environment: dto.environment,
+      verdict: report.verdict,
     });
 
     return deployment;
