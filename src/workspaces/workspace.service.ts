@@ -1,9 +1,19 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
+import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { CreateWorkspaceDto } from './dto/create-workspace.dto';
+
+const WORKSPACE_LIST_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  createdAt: true,
+  updatedAt: true,
+  organization: { select: { id: true, name: true, slug: true } },
+} as const;
 
 @Injectable()
 export class WorkspaceService {
@@ -17,14 +27,22 @@ export class WorkspaceService {
       where: {
         organization: { memberships: { some: { userId } } },
       },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        createdAt: true,
-        updatedAt: true,
-        organization: { select: { id: true, name: true, slug: true } },
-      },
+      select: WORKSPACE_LIST_SELECT,
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  /**
+   * Key-authenticated workspace listing, bounded to the key
+   * organization. Grounded in the GitHub team listing: organization
+   * grouping structures are readable with the organization-level read
+   * permission. The row shape mirrors the JWT listing exactly, so the
+   * two surfaces can never drift apart. Reads never audit.
+   */
+  async listForKey(key: AuthenticatedApiKey) {
+    return this.prisma.workspace.findMany({
+      where: { organizationId: key.organizationId },
+      select: WORKSPACE_LIST_SELECT,
       orderBy: { updatedAt: 'desc' },
     });
   }
