@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsObject, IsString } from 'class-validator';
 
 export class DispatchEventDto {
   @IsString()
@@ -6,5 +6,6 @@ export class DispatchEventDto {
   eventName: string;
 
   /** Free-form JSON payload delivered alongside the event name. */
+  @IsObject()
   payload: Record<string, unknown>;
 }
