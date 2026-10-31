@@ -8,6 +8,7 @@ import { VerificationModule } from '../verification/verification.module';
 import { WorkGraphModule } from '../work-graphs/work-graph.module';
 import { ConversationModule } from '../conversations/conversation.module';
 import { ReferencesModule } from '../references/references.module';
+import { DeploymentModule } from '../deployments/deployment.module';
 import { ApiKeyAdminController, GenapiController } from './api-key.controller';
 import { ApiKeyGuard } from './api-key.guard';
 import { ApiKeyService } from './api-key.service';
@@ -23,6 +24,7 @@ import { ApiKeyService } from './api-key.service';
     WorkGraphModule,
     ConversationModule,
     ReferencesModule,
+    DeploymentModule,
   ],
   controllers: [ApiKeyAdminController, GenapiController],
   providers: [ApiKeyService, ApiKeyGuard],
