@@ -1,5 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ApplicationStatus, MembershipRole } from '@prisma/client';
+import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
+import {
+  WriteActor,
+  actorAttribution,
+  actorAuditMetadata,
+  actorAuditOrganization,
+  keyActorFromApiKey,
+} from '../api-keys/engine/api-key-policy';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { WebhookService } from '../integrations/webhook.service';
@@ -92,6 +100,22 @@ export class ApplicationService {
 
   async archive(userId: string, applicationId: string) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.archiveAsActor({ kind: 'user', userId }, applicationId);
+  }
+
+  /**
+   * Key-authenticated archive. The key is the authorization: the tenant
+   * bound refuses foreign, missing, and already archived applications
+   * with the same uniform 404, so an archive double-tap answers 404 the
+   * second time exactly like the JWT surface.
+   */
+  async archiveForKey(key: AuthenticatedApiKey, applicationId: string) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    return this.archiveAsActor(keyActorFromApiKey(key), applicationId);
+  }
+
+  private async archiveAsActor(actor: WriteActor, applicationId: string) {
+    const attributedUserId = actorAttribution(actor);
     const application = await this.prisma.application.update({
       where: { id: applicationId },
       data: { status: ApplicationStatus.ARCHIVED },
@@ -99,12 +123,13 @@ export class ApplicationService {
     });
     await this.prisma.auditEvent.create({
       data: {
-        actorUserId: userId,
+        actorUserId: attributedUserId,
+        organizationId: actorAuditOrganization(actor),
         action: 'application.archive',
         resourceType: 'application',
         resourceId: applicationId,
         outcome: 'SUCCESS',
-        metadata: { applicationId },
+        metadata: actorAuditMetadata(actor, { applicationId }),
       },
     });
     await this.events.emitForApplication(applicationId, 'application.archived', { applicationId });
@@ -121,6 +146,36 @@ export class ApplicationService {
     if (!archived) {
       throw new NotFoundException('Archived application not found.');
     }
+    return this.restoreAsActor({ kind: 'user', userId }, applicationId);
+  }
+
+  /**
+   * Key-authenticated restore. The archived-state lookup bounded to the
+   * key organization is the guard itself, exactly like the JWT surface:
+   * foreign, missing, and non-archived applications all answer the
+   * same uniform 404.
+   */
+  async restoreForKey(key: AuthenticatedApiKey, applicationId: string) {
+    const actor = keyActorFromApiKey(key);
+    const archived = await this.prisma.application.findFirst({
+      where: {
+        id: applicationId,
+        status: ApplicationStatus.ARCHIVED,
+        project: {
+          status: 'ACTIVE',
+          workspace: { organizationId: actor.organizationId },
+        },
+      },
+      select: { id: true },
+    });
+    if (!archived) {
+      throw new NotFoundException('Archived application not found.');
+    }
+    return this.restoreAsActor(actor, applicationId);
+  }
+
+  private async restoreAsActor(actor: WriteActor, applicationId: string) {
+    const attributedUserId = actorAttribution(actor);
     const application = await this.prisma.application.update({
       where: { id: applicationId },
       data: { status: ApplicationStatus.PLANNING },
@@ -128,12 +183,13 @@ export class ApplicationService {
     });
     await this.prisma.auditEvent.create({
       data: {
-        actorUserId: userId,
+        actorUserId: attributedUserId,
+        organizationId: actorAuditOrganization(actor),
         action: 'application.restore',
         resourceType: 'application',
         resourceId: applicationId,
         outcome: 'SUCCESS',
-        metadata: { applicationId },
+        metadata: actorAuditMetadata(actor, { applicationId }),
       },
     });
     await this.events.emitForApplication(applicationId, 'application.updated', { applicationId });
