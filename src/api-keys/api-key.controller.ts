@@ -13,6 +13,7 @@ import { ReferencesService } from '../references/references.service';
 import { JobQueueService } from '../execution/job-queue.service';
 import { WorkGraphService } from '../work-graphs/work-graph.service';
 import { DeploymentService } from '../deployments/deployment.service';
+import { OrganizationService } from '../organizations/organization.service';
 import { RunVerificationDto } from '../verification/dto/run-verification.dto';
 import { ApiKeyGuard, AuthenticatedApiKey, RequireScopes } from './api-key.guard';
 import { ApiKeyService } from './api-key.service';
@@ -73,6 +74,7 @@ export class GenapiController {
     private readonly conversations: ConversationService,
     private readonly references: ReferencesService,
     private readonly deployments: DeploymentService,
+    private readonly organizations: OrganizationService,
   ) {}
 
   @Get('me')
@@ -83,6 +85,19 @@ export class GenapiController {
       key: { id: key.id, name: key.name, scopes: key.scopes },
       organization: { id: key.organizationId },
     };
+  }
+
+  /**
+   * Key-authenticated organization audit trail. Grounded in the GitHub
+   * audit log REST surface, where reading audit data needs a dedicated
+   * read permission and the trail comes back newest first: the listing
+   * mirrors the JWT admin surface exactly, tenant-bounded to the key
+   * organization. There is deliberately no audit row for reads.
+   */
+  @Get('audit-events')
+  @RequireScopes('READ_ORGANIZATION')
+  listAuditEvents(@Req() request: KeyedRequest) {
+    return this.organizations.listAuditEventsForKey(request.apiKey!);
   }
 
   @Get('projects')
