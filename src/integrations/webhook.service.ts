@@ -463,7 +463,11 @@ export class WebhookService {
     const nextAttemptAt =
       status === 'PENDING' ? new Date(Date.now() + backoffSeconds(delivery.attempts) * 1000) : null;
 
-    await this.prisma.webhookDelivery.update({
+    // An endpoint delete can cascade this delivery row away mid-attempt.
+    // The attempt itself still happened, so the final write is a
+    // conditional updateMany that quietly matches zero rows instead of
+    // surfacing a record-missing P2025 as a 500.
+    await this.prisma.webhookDelivery.updateMany({
       where: { id: delivery.id },
       data: {
         status,
