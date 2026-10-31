@@ -78,7 +78,7 @@ export class GenapiController {
     private readonly deployments: DeploymentService,
     private readonly organizations: OrganizationService,
     private readonly workspaces: WorkspaceService,
-    private readonly projects: ProjectService,
+    private readonly projectService: ProjectService,
   ) {}
 
   @Get('me')
@@ -131,7 +131,7 @@ export class GenapiController {
     @Req() request: KeyedRequest,
     @Param('workspaceId') workspaceId: string,
   ) {
-    return this.projects.listInWorkspaceForKey(request.apiKey!, workspaceId);
+    return this.projectService.listInWorkspaceForKey(request.apiKey!, workspaceId);
   }
 
   /**
@@ -147,7 +147,7 @@ export class GenapiController {
     @Req() request: KeyedRequest,
     @Param('projectId') projectId: string,
   ) {
-    return this.projects.getForKey(request.apiKey!, projectId);
+    return this.projectService.getForKey(request.apiKey!, projectId);
   }
 
   @Get('projects')
