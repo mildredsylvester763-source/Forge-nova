@@ -11,6 +11,7 @@ import { FileService } from '../files/file.service';
 import { WriteFileDto } from '../files/dto/write-file.dto';
 import { VerificationService } from '../verification/verification.service';
 import { ConversationService } from '../conversations/conversation.service';
+import { CreateMessageDto } from '../conversations/dto/create-message.dto';
 import { ReferencesService } from '../references/references.service';
 import { JobQueueService } from '../execution/job-queue.service';
 import { WorkGraphService } from '../work-graphs/work-graph.service';
@@ -316,6 +317,30 @@ export class GenapiController {
       conversationId,
       take,
       before,
+    );
+  }
+
+  /**
+   * Key-authenticated user message write. Grounded in the GitHub issue
+   * comment create: a token with write permission may post comments and
+   * the post is attributed to the token identity. The application
+   * tenant bound refuses foreign and archived applications, the
+   * conversation must belong to that application, and the archived
+   * conversation law mirrors the JWT route exactly.
+   */
+  @Post('applications/:applicationId/conversations/:conversationId/messages')
+  @RequireScopes('WRITE_APPLICATIONS')
+  addConversationMessage(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('conversationId') conversationId: string,
+    @Body() dto: CreateMessageDto,
+  ) {
+    return this.conversations.addUserMessageForKey(
+      request.apiKey!,
+      applicationId,
+      conversationId,
+      dto,
     );
   }
 
