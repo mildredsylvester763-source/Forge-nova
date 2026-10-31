@@ -414,6 +414,27 @@ export class GenapiController {
     return this.references.createForKey(request.apiKey!, applicationId, dto);
   }
 
+  /**
+   * Key-authenticated reference extract. Grounded in the OpenAI vector
+   * store file processing: attaching an uploaded file triggers AI
+   * processing straight from an API key, and the file carries its
+   * honest processing status with a recorded error. WRITE_APPLICATIONS
+   * grants the processing run; the writable tenant bound refuses
+   * foreign, missing, and archived applications with one uniform
+   * 404; a failure marks the reference EXTRACTION_FAILED with the
+   * recorded error; and a success lands in the audit trail exactly
+   * once, attributed to the acting key.
+   */
+  @Post('applications/:applicationId/references/:referenceId/extract')
+  @RequireScopes('WRITE_APPLICATIONS')
+  extractReference(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('referenceId') referenceId: string,
+  ) {
+    return this.references.extractForKey(request.apiKey!, applicationId, referenceId);
+  }
+
   
   @Get('applications/:applicationId/jobs/:jobId')
   @RequireScopes('READ_APPLICATIONS')
