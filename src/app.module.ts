@@ -21,6 +21,7 @@ import { VerificationModule } from './verification/verification.module';
 import { ReferencesModule } from './references/references.module';
 import { DeploymentModule } from './deployments/deployment.module';
 import { ApiKeyModule } from './api-keys/api-key.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 import { PrismaModule } from './database/prisma.module';
 import { HealthModule } from './health/health.module';
 import { validateEnvironment } from './common/config/env.validation';
@@ -53,6 +54,7 @@ import { validateEnvironment } from './common/config/env.validation';
     ReferencesModule,
     DeploymentModule,
     ApiKeyModule,
+    IntegrationsModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
