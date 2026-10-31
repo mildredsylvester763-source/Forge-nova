@@ -8,6 +8,8 @@ import { CreateCheckpointDto } from '../checkpoints/dto/create-checkpoint.dto';
 import { FileService } from '../files/file.service';
 import { WriteFileDto } from '../files/dto/write-file.dto';
 import { VerificationService } from '../verification/verification.service';
+import { JobQueueService } from '../execution/job-queue.service';
+import { WorkGraphService } from '../work-graphs/work-graph.service';
 import { RunVerificationDto } from '../verification/dto/run-verification.dto';
 import { ApiKeyGuard, AuthenticatedApiKey, RequireScopes } from './api-key.guard';
 import { ApiKeyService } from './api-key.service';
@@ -63,6 +65,8 @@ export class GenapiController {
     private readonly checkpoints: CheckpointService,
     private readonly verifications: VerificationService,
     private readonly apps: ApplicationService,
+    private readonly jobs: JobQueueService,
+    private readonly graphs: WorkGraphService,
   ) {}
 
   @Get('me')
@@ -134,6 +138,45 @@ export class GenapiController {
     return this.verifications.findOneForKey(request.apiKey!, applicationId, verificationId);
   }
 
+  @Get('applications/:applicationId/work-graphs')
+  @RequireScopes('READ_APPLICATIONS')
+  listWorkGraphs(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    return this.graphs.listForKey(request.apiKey!, applicationId);
+  }
+
+  @Get('applications/:applicationId/work-graphs/:graphId')
+  @RequireScopes('READ_APPLICATIONS')
+  readWorkGraph(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('graphId') graphId: string,
+  ) {
+    return this.graphs.getForKey(request.apiKey!, applicationId, graphId);
+  }
+
+  @Get('applications/:applicationId/work-graphs/:graphId/validate')
+  @RequireScopes('READ_APPLICATIONS')
+  validateWorkGraph(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('graphId') graphId: string,
+  ) {
+    return this.graphs.validateForKey(request.apiKey!, applicationId, graphId);
+  }
+
+  @Get('applications/:applicationId/jobs/:jobId')
+  @RequireScopes('READ_APPLICATIONS')
+  inspectJob(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('jobId') jobId: string,
+  ) {
+    return this.jobs.getForKey(request.apiKey!, applicationId, jobId);
+  }
+
   @Post('applications/:applicationId/files')
   @RequireScopes('WRITE_APPLICATIONS')
   writeFile(
@@ -190,5 +233,23 @@ export class GenapiController {
     @Param('applicationId') applicationId: string,
   ) {
     return this.apps.restoreForKey(request.apiKey!, applicationId);
+  }
+
+  /**
+   * Key-authenticated job cancellation. Mirrors the semantics GitHub
+   * gives workflow-run cancellation: write access is required, only
+   * queued or in-progress jobs can be cancelled, and cancelling an
+   * already finished job is an honest no-op that reports the current
+   * status. The state change lands in the organization audit trail
+   * exactly once, attributed to the acting key.
+   */
+  @Post('applications/:applicationId/jobs/:jobId/cancel')
+  @RequireScopes('WRITE_APPLICATIONS')
+  cancelJob(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('jobId') jobId: string,
+  ) {
+    return this.jobs.cancelForKey(request.apiKey!, applicationId, jobId);
   }
 }
