@@ -179,7 +179,7 @@ export class WebhookService {
         },
         select: DELIVERY_SELECT,
       });
-      const outcome = await this.attemptDelivery(delivery.id, 0);
+      const outcome = await this.attemptDelivery(delivery.id);
       results.push(outcome ?? {
         deliveryId: delivery.id,
         endpointId: endpoint.id,
@@ -216,8 +216,8 @@ export class WebhookService {
    * Manual retry. Honors the backoff schedule: too-early and
    * exhausted are both 409s. Two concurrent retries of the same
    * delivery get exactly one 201 and one 409 - the attempt claim
-   * is an atomic updateMany on PENDING at the expected attempt
-   * number, so the loser can never double-send.
+   * is an atomic updateMany that flips PENDING to IN_FLIGHT, so
+   * the loser can never double-send, whatever order it reads in.
    */
   async retry(userId: string, organizationId: string, deliveryId: string) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.writeRoles());
@@ -242,7 +242,7 @@ export class WebhookService {
       throw new ConflictException('No retries remain for this delivery.');
     }
 
-    const outcome = await this.attemptDelivery(deliveryId, delivery.attempts);
+    const outcome = await this.attemptDelivery(deliveryId);
     if (!outcome) {
       throw new ConflictException('Delivery is already being attempted.');
     }
@@ -274,15 +274,16 @@ export class WebhookService {
 
   /**
    * Performs one signed delivery attempt. The claim is an atomic
-   * updateMany pinned to (PENDING, expected attempts): a concurrent
-   * claimant re-evaluates the WHERE clause AFTER the winner commits,
-   * sees the bumped attempt count, and loses cleanly. Exactly one
-   * caller ever sends; everyone else sees null.
+   * updateMany that flips PENDING to IN_FLIGHT: a concurrent claimant
+   * re-evaluates the WHERE clause AFTER the winner commits, sees
+   * IN_FLIGHT, and loses cleanly - regardless of whether it read
+   * the row before or after the winner claimed. Exactly one caller
+   * ever sends; everyone else sees null.
    */
-  private async attemptDelivery(deliveryId: string, expectedAttempts: number) {
+  private async attemptDelivery(deliveryId: string) {
     const claim = await this.prisma.webhookDelivery.updateMany({
-      where: { id: deliveryId, status: 'PENDING', attempts: expectedAttempts },
-      data: { attempts: { increment: 1 } },
+      where: { id: deliveryId, status: 'PENDING' },
+      data: { status: 'IN_FLIGHT', attempts: { increment: 1 } },
     });
     if (claim.count !== 1) return null;
 
