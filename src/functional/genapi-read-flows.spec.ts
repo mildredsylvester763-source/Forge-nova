@@ -354,7 +354,14 @@ suite('genapi key-authenticated read flows (real app, real database)', () => {
     const run = inspected.body as { id: string; kind: string; status: string; triggeredBy: string | null; findings: unknown };
     expect(run.id).toBe(seedRunIds[0]);
     expect(run.triggeredBy).toBe(hank.userId);
-    expect(run.findings).toBeInstanceOf(Object);
+    // The body crossed an HTTP JSON boundary, so an instanceof check against
+    // the test realm Object is unreliable. Assert the real persisted shape
+    // instead: findings always carries the counts object and the items array.
+    const findings = run.findings as { counts?: unknown; items?: unknown };
+    expect(findings).not.toBeNull();
+    expect(typeof findings).toBe('object');
+    expect(typeof findings.counts).toBe('object');
+    expect(Array.isArray(findings.items)).toBe(true);
 
     const unknown = await genapiGet(
       'applications/' + applicationIdA + '/verifications/unknown-run-id',
