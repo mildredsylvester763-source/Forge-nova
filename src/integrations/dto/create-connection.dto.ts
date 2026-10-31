@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsObject, IsString, MaxLength } from 'class-validator';
 
 export class CreateConnectionDto {
   @IsString()
@@ -15,6 +15,7 @@ export class CreateConnectionDto {
    * against the connector catalog: only NAMED fields are stored, and
    * the values are never echoed back in any response.
    */
+  @IsObject()
   @IsNotEmpty()
   credentials: Record<string, string>;
 }
