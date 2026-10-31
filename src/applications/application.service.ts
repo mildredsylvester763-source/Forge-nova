@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { ApplicationStatus, MembershipRole } from '@prisma/client';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
+import { WebhookService } from '../integrations/webhook.service';
 import { CreateApplicationDto } from './dto/create-application.dto';
 import { UpdateApplicationDto } from './dto/update-application.dto';
 
@@ -22,6 +23,7 @@ export class ApplicationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: AccessControlService,
+    private readonly events: WebhookService,
   ) {}
 
   async listForProject(userId: string, projectId: string) {
@@ -55,6 +57,10 @@ export class ApplicationService {
         metadata: { applicationId: application.id, projectId },
       },
     });
+    await this.events.emitForProject(projectId, 'application.created', {
+      applicationId: application.id,
+      name: application.name,
+    });
     return application;
   }
 
@@ -80,6 +86,7 @@ export class ApplicationService {
         metadata: { applicationId },
       },
     });
+    await this.events.emitForApplication(applicationId, 'application.updated', { applicationId });
     return application;
   }
 
@@ -100,6 +107,7 @@ export class ApplicationService {
         metadata: { applicationId },
       },
     });
+    await this.events.emitForApplication(applicationId, 'application.archived', { applicationId });
     return application;
   }
 
@@ -128,6 +136,7 @@ export class ApplicationService {
         metadata: { applicationId },
       },
     });
+    await this.events.emitForApplication(applicationId, 'application.updated', { applicationId });
     return application;
   }
 
