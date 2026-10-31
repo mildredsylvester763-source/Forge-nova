@@ -150,6 +150,20 @@ export class CheckpointService {
 
   async list(userId: string, applicationId: string) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
+    return this.listForApplication(applicationId);
+  }
+
+  /**
+   * Key-authenticated checkpoint listing. Reads stay possible on archived
+   * applications; foreign and missing applications answer with the
+   * same uniform 404.
+   */
+  async listForKey(key: AuthenticatedApiKey, applicationId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    return this.listForApplication(applicationId);
+  }
+
+  private async listForApplication(applicationId: string) {
     const checkpoints = await this.prisma.checkpoint.findMany({
       where: { applicationId },
       select: { id: true, label: true, sourceRef: true, createdBy: true, createdAt: true, manifest: true },
