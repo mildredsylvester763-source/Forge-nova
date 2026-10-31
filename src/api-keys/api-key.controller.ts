@@ -87,6 +87,53 @@ export class GenapiController {
     return this.apiKeys.listOrganizationApplications(request.apiKey!.organizationId);
   }
 
+  @Get('applications/:applicationId/files')
+  @RequireScopes('READ_APPLICATIONS')
+  listFiles(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    return this.files.listForKey(request.apiKey!, applicationId);
+  }
+
+  @Get('applications/:applicationId/files/:fileId')
+  @RequireScopes('READ_APPLICATIONS')
+  readFile(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('fileId') fileId: string,
+  ) {
+    return this.files.readForKey(request.apiKey!, applicationId, fileId);
+  }
+
+  @Get('applications/:applicationId/checkpoints')
+  @RequireScopes('READ_APPLICATIONS')
+  listCheckpoints(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    return this.checkpoints.listForKey(request.apiKey!, applicationId);
+  }
+
+  @Get('applications/:applicationId/verifications')
+  @RequireScopes('READ_APPLICATIONS')
+  listVerifications(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    return this.verifications.listForApplicationForKey(request.apiKey!, applicationId);
+  }
+
+  @Get('applications/:applicationId/verifications/:verificationId')
+  @RequireScopes('READ_APPLICATIONS')
+  inspectVerification(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('verificationId') verificationId: string,
+  ) {
+    return this.verifications.findOneForKey(request.apiKey!, applicationId, verificationId);
+  }
+
   @Post('applications/:applicationId/files')
   @RequireScopes('WRITE_APPLICATIONS')
   writeFile(
