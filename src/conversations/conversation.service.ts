@@ -1,4 +1,5 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { SecretScannerService } from '../security/secret-scanner.service';
@@ -13,8 +14,13 @@ export class ConversationService {
     private readonly secrets: SecretScannerService,
   ) {}
 
-  async listForApplication(userId: string, applicationId: string) {
-    await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
+  /**
+   * The one conversation-listing core shared by the JWT route and the
+   * genapi key route: newest activity first, with honest message counts.
+   * Archived conversations stay visible because their archivedAt stamp
+   * is the honest signal - the key read surface mirrors that exactly.
+   */
+  private listConversationsForApplication(applicationId: string) {
     return this.prisma.conversation.findMany({
       where: { applicationId },
       select: {
@@ -28,6 +34,22 @@ export class ConversationService {
       },
       orderBy: { updatedAt: 'desc' },
     });
+  }
+
+  async listForApplication(userId: string, applicationId: string) {
+    await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
+    return this.listConversationsForApplication(applicationId);
+  }
+
+  /**
+   * Key-authenticated conversation listing. Grounded in the GitHub
+   * issue-comment listing: reading needs only read access, and foreign
+   * or missing applications answer the same uniform 404. Reads stay
+   * possible on archived applications; there is no audit row for reads.
+   */
+  async listForKey(key: AuthenticatedApiKey, applicationId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    return this.listConversationsForApplication(applicationId);
   }
 
   async create(userId: string, applicationId: string, dto: CreateConversationDto) {
@@ -60,22 +82,49 @@ export class ConversationService {
     });
   }
 
-  async listMessages(userId: string, conversationId: string, take = 100, before?: string) {
-    await this.access.requireConversationRole(
-      userId,
-      conversationId,
-      this.access.allRoles(),
-    );
+  /**
+   * The one message-window law shared by the JWT route and the genapi
+   * key route: take defaults to 100 and must be an integer between 1
+   * and 100. The evaluation order is part of the contract - an invalid
+   * take is a named 400 before any tenant lookups run, exactly like
+   * the JWT route has always behaved.
+   */
+  static parseMessageTake(raw: string | undefined): number {
+    const parsed = raw === undefined ? 100 : Number(raw);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+      throw new BadRequestException('take must be an integer between 1 and 100.');
+    }
+    return parsed;
+  }
 
-    const cursorDate = before ? new Date(before) : undefined;
+  /**
+   * The optional before cursor must be a real date; anything else is a
+   * named 400, never a silently ignored filter. Runs after the tenant
+   * bound, matching the long-standing JWT evaluation order.
+   */
+  static parseMessageCursor(raw: string | undefined): Date | undefined {
+    const cursorDate = raw ? new Date(raw) : undefined;
     if (cursorDate && Number.isNaN(cursorDate.getTime())) {
       throw new BadRequestException('Invalid message pagination cursor.');
     }
+    return cursorDate;
+  }
 
+  /**
+   * The one message-listing core shared by both surfaces: the newest
+   * window is taken newest-first and then reversed so callers always
+   * receive messages in ascending time order - the same oldest-first
+   * order GitHub uses for issue comments.
+   */
+  private async listMessagesForConversation(
+    conversationId: string,
+    take: number,
+    before?: Date,
+  ) {
     const rows = await this.prisma.message.findMany({
       where: {
         conversationId,
-        ...(cursorDate ? { createdAt: { lt: cursorDate } } : {}),
+        ...(before ? { createdAt: { lt: before } } : {}),
       },
       select: {
         id: true,
@@ -89,6 +138,48 @@ export class ConversationService {
       take: Math.min(Math.max(take, 1), 100),
     });
     return rows.reverse();
+  }
+
+  async listMessages(
+    userId: string,
+    conversationId: string,
+    rawTake?: string,
+    rawBefore?: string,
+  ) {
+    const take = ConversationService.parseMessageTake(rawTake);
+    await this.access.requireConversationRole(
+      userId,
+      conversationId,
+      this.access.allRoles(),
+    );
+    const before = ConversationService.parseMessageCursor(rawBefore);
+    return this.listMessagesForConversation(conversationId, take, before);
+  }
+
+  /**
+   * Key-authenticated message listing. The application must belong to the
+   * key organization and the conversation must belong to that application;
+   * foreign, cross-application, and missing conversations all answer the
+   * same uniform 404 so a key can never probe another tenant.
+   */
+  async listMessagesForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    conversationId: string,
+    rawTake?: string,
+    rawBefore?: string,
+  ) {
+    const take = ConversationService.parseMessageTake(rawTake);
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, applicationId },
+      select: { id: true },
+    });
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found.');
+    }
+    const before = ConversationService.parseMessageCursor(rawBefore);
+    return this.listMessagesForConversation(conversationId, take, before);
   }
 
   async addUserMessage(userId: string, conversationId: string, dto: CreateMessageDto) {
