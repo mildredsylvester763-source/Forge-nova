@@ -3,6 +3,7 @@ import { Prisma, ReferenceStatus } from '@prisma/client';
 import { AiRouterService } from '../ai/ai-router.service';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
+import { WebhookService } from '../integrations/webhook.service';
 import { SecretScannerService } from '../security/secret-scanner.service';
 import { CreateReferenceDto } from './dto/create-reference.dto';
 import {
@@ -33,6 +34,7 @@ export class ReferencesService {
     private readonly access: AccessControlService,
     private readonly ai: AiRouterService,
     private readonly secrets: SecretScannerService,
+    private readonly events: WebhookService,
   ) {}
 
   async create(userId: string, applicationId: string, dto: CreateReferenceDto) {
@@ -68,6 +70,13 @@ export class ReferencesService {
         outcome: 'SUCCESS',
         metadata: { applicationId, kind: validated.kind },
       },
+    });
+
+    await this.events.emitForApplication(applicationId, 'reference.created', {
+      applicationId,
+      referenceId: reference.id,
+      kind: validated.kind,
+      title: validated.title,
     });
 
     return reference;
