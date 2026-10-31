@@ -11,6 +11,7 @@ import {
   WorkNodeType,
   WorkRiskLevel,
 } from '@prisma/client';
+import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { SecretScannerService } from '../security/secret-scanner.service';
@@ -25,20 +26,71 @@ export class WorkGraphService {
     private readonly secrets: SecretScannerService,
   ) {}
 
-  async listForApplication(userId: string, applicationId: string) {
-    await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
-    return this.prisma.workGraph.findMany({
-      where: { applicationId },
+  private readonly graphListSelect = {
+    id: true,
+    applicationId: true,
+    title: true,
+    status: true,
+    version: true,
+    createdAt: true,
+    updatedAt: true,
+    _count: { select: { nodes: true } },
+  } as const;
+
+  private readonly graphDetailSelect = {
+    id: true,
+    applicationId: true,
+    title: true,
+    sourcePrompt: true,
+    status: true,
+    version: true,
+    createdAt: true,
+    updatedAt: true,
+    nodes: {
       select: {
         id: true,
-        applicationId: true,
+        key: true,
+        type: true,
         title: true,
+        description: true,
         status: true,
-        version: true,
+        riskLevel: true,
+        requiresApproval: true,
+        input: true,
+        output: true,
+        attemptCount: true,
         createdAt: true,
         updatedAt: true,
-        _count: { select: { nodes: true } },
+        incomingDependencies: {
+          select: { fromNodeId: true },
+        },
+        outgoingDependencies: {
+          select: { toNodeId: true },
+        },
       },
+      orderBy: { createdAt: 'asc' },
+    },
+  } as const;
+
+  async listForApplication(userId: string, applicationId: string) {
+    await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
+    return this.listGraphsForApplication(applicationId);
+  }
+
+  /**
+   * Key-authenticated work graph listing. Reads stay possible on
+   * archived applications; foreign and missing applications answer
+   * with the same uniform 404.
+   */
+  async listForKey(key: AuthenticatedApiKey, applicationId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    return this.listGraphsForApplication(applicationId);
+  }
+
+  private listGraphsForApplication(applicationId: string) {
+    return this.prisma.workGraph.findMany({
+      where: { applicationId },
+      select: this.graphListSelect,
       orderBy: { updatedAt: 'desc' },
     });
   }
@@ -84,40 +136,22 @@ export class WorkGraphService {
     await this.access.requireWorkGraphRole(userId, graphId, this.access.allRoles());
     const graph = await this.prisma.workGraph.findUnique({
       where: { id: graphId },
-      select: {
-        id: true,
-        applicationId: true,
-        title: true,
-        sourcePrompt: true,
-        status: true,
-        version: true,
-        createdAt: true,
-        updatedAt: true,
-        nodes: {
-          select: {
-            id: true,
-            key: true,
-            type: true,
-            title: true,
-            description: true,
-            status: true,
-            riskLevel: true,
-            requiresApproval: true,
-            input: true,
-            output: true,
-            attemptCount: true,
-            createdAt: true,
-            updatedAt: true,
-            incomingDependencies: {
-              select: { fromNodeId: true },
-            },
-            outgoingDependencies: {
-              select: { toNodeId: true },
-            },
-          },
-          orderBy: { createdAt: 'asc' },
-        },
-      },
+      select: this.graphDetailSelect,
+    });
+    if (!graph) throw new NotFoundException('Work graph not found.');
+    return graph;
+  }
+
+  /**
+   * Key-authenticated work graph inspection. The graph is tenant- and
+   * application-bound: a graph id from another application or another
+   * organization answers with the same uniform 404 as an unknown one.
+   */
+  async getForKey(key: AuthenticatedApiKey, applicationId: string, graphId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    const graph = await this.prisma.workGraph.findFirst({
+      where: { id: graphId, applicationId },
+      select: this.graphDetailSelect,
     });
     if (!graph) throw new NotFoundException('Work graph not found.');
     return graph;
@@ -209,6 +243,25 @@ export class WorkGraphService {
 
   async validate(userId: string, graphId: string) {
     await this.access.requireWorkGraphRole(userId, graphId, this.access.allRoles());
+    return this.validateGraphById(graphId);
+  }
+
+  /**
+   * Key-authenticated cycle validation. A pure read over the graph the
+   * key can already see; foreign graph ids answer with the same
+   * uniform 404 as unknown ones.
+   */
+  async validateForKey(key: AuthenticatedApiKey, applicationId: string, graphId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    const graph = await this.prisma.workGraph.findFirst({
+      where: { id: graphId, applicationId },
+      select: { id: true },
+    });
+    if (!graph) throw new NotFoundException('Work graph not found.');
+    return this.validateGraphById(graphId);
+  }
+
+  private async validateGraphById(graphId: string) {
     const nodes = await this.prisma.workNode.findMany({
       where: { graphId },
       select: {
