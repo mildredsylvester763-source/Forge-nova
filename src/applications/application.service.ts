@@ -45,6 +45,25 @@ export class ApplicationService {
 
   async create(userId: string, projectId: string, dto: CreateApplicationDto) {
     await this.access.requireProjectRole(userId, projectId, this.access.writeRoles());
+    return this.createAsActor({ kind: 'user', userId }, projectId, dto);
+  }
+
+  /**
+   * Key-authenticated create. Grounded in the market leaders: GitHub
+   * organization repositories and Vercel projects can be created by an
+   * API token with write permission, and the created resource is
+   * attributed to the acting credential. The writable tenant bound is
+   * the guard: foreign, missing, and archived projects all answer the
+   * same uniform 404, so a key can neither probe other tenants nor
+   * create inside a non-active project.
+   */
+  async createForKey(key: AuthenticatedApiKey, projectId: string, dto: CreateApplicationDto) {
+    await this.access.requireProjectInOrganization(key.organizationId, projectId);
+    return this.createAsActor(keyActorFromApiKey(key), projectId, dto);
+  }
+
+  private async createAsActor(actor: WriteActor, projectId: string, dto: CreateApplicationDto) {
+    const attributedUserId = actorAttribution(actor);
     const application = await this.prisma.application.create({
       data: {
         projectId,
@@ -57,12 +76,13 @@ export class ApplicationService {
     });
     await this.prisma.auditEvent.create({
       data: {
-        actorUserId: userId,
+        actorUserId: attributedUserId,
+        organizationId: actorAuditOrganization(actor),
         action: 'application.create',
         resourceType: 'application',
         resourceId: application.id,
         outcome: 'SUCCESS',
-        metadata: { applicationId: application.id, projectId },
+        metadata: actorAuditMetadata(actor, { applicationId: application.id, projectId }),
       },
     });
     await this.events.emitForProject(projectId, 'application.created', {
