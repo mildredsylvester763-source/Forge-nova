@@ -12,6 +12,7 @@ export const ALL_API_KEY_SCOPES = [
   'READ_ORGANIZATION',
   'READ_PROJECTS',
   'READ_APPLICATIONS',
+  'WRITE_APPLICATIONS',
 ] as const;
 
 export type ApiKeyScopeName = (typeof ALL_API_KEY_SCOPES)[number];
@@ -98,4 +99,71 @@ export function isKeyUsable(
     return 'api-key.expired';
   }
   return { usable: true };
+}
+
+/**
+ * The principal behind a write. JWT-authenticated requests act as the
+ * user; key-authenticated genapi requests act as the key itself,
+ * tenant-bounded to the key organization and attributed to the key
+ * creator when that user still exists.
+ */
+export interface KeyActorContext {
+  kind: 'apiKey';
+  apiKeyId: string;
+  apiKeyName: string;
+  organizationId: string;
+  attributedUserId: string | null;
+}
+
+export type WriteActor =
+  | { kind: 'user'; userId: string }
+  | KeyActorContext;
+
+export function keyActorFromApiKey(key: {
+  id: string;
+  name: string;
+  organizationId: string;
+  createdBy: string | null;
+}): KeyActorContext {
+  return {
+    kind: 'apiKey',
+    apiKeyId: key.id,
+    apiKeyName: key.name,
+    organizationId: key.organizationId,
+    attributedUserId: key.createdBy,
+  };
+}
+
+/**
+ * The user id written into createdBy/triggeredBy columns. A key whose
+ * creator has been deleted attributes honestly to null.
+ */
+export function actorAttribution(actor: WriteActor): string | null {
+  return actor.kind === 'user' ? actor.userId : actor.attributedUserId;
+}
+
+/**
+ * Key-authenticated actions are stamped into audit metadata so the
+ * trail always shows which key performed the action. User actions
+ * keep their existing metadata shape unchanged.
+ */
+export function actorAuditMetadata(
+  actor: WriteActor,
+  base: Record<string, unknown>,
+): Record<string, unknown> {
+  if (actor.kind === 'user') return base;
+  return { ...base, via: 'genapi', apiKeyId: actor.apiKeyId, apiKeyName: actor.apiKeyName };
+}
+
+/**
+ * Key-authenticated audit rows are organization-scoped so they appear
+ * in the organization audit trail; user rows keep the existing shape.
+ */
+export function actorAuditOrganization(actor: WriteActor): string | null {
+  return actor.kind === 'user' ? null : actor.organizationId;
+}
+
+/** Single source of truth for scope checks across the genapi surface. */
+export function hasGrantedScope(scopes: readonly string[], required: string): boolean {
+  return scopes.includes(required);
 }
