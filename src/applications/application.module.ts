@@ -7,5 +7,6 @@ import { ApplicationService } from './application.service';
   imports: [IntegrationsModule],
   controllers: [ApplicationController],
   providers: [ApplicationService],
+  exports: [ApplicationService],
 })
 export class ApplicationModule {}
