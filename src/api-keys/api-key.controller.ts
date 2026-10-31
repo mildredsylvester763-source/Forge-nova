@@ -12,6 +12,7 @@ import { ConversationService } from '../conversations/conversation.service';
 import { ReferencesService } from '../references/references.service';
 import { JobQueueService } from '../execution/job-queue.service';
 import { WorkGraphService } from '../work-graphs/work-graph.service';
+import { DeploymentService } from '../deployments/deployment.service';
 import { RunVerificationDto } from '../verification/dto/run-verification.dto';
 import { ApiKeyGuard, AuthenticatedApiKey, RequireScopes } from './api-key.guard';
 import { ApiKeyService } from './api-key.service';
@@ -71,6 +72,7 @@ export class GenapiController {
     private readonly graphs: WorkGraphService,
     private readonly conversations: ConversationService,
     private readonly references: ReferencesService,
+    private readonly deployments: DeploymentService,
   ) {}
 
   @Get('me')
@@ -265,6 +267,49 @@ export class GenapiController {
     @Param('jobId') jobId: string,
   ) {
     return this.jobs.getForKey(request.apiKey!, applicationId, jobId);
+  }
+
+  /**
+   * Key-authenticated readiness report. Grounded in the GitHub
+   * deployments read surface: reading deployments and their statuses
+   * needs only read access. Reads stay possible on archived
+   * applications and never write an audit row.
+   */
+  @Get('applications/:applicationId/deployments/readiness')
+  @RequireScopes('READ_APPLICATIONS')
+  readDeploymentReadiness(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    return this.deployments.getReadinessForKey(request.apiKey!, applicationId);
+  }
+
+  /**
+   * Key-authenticated deployment listing, mirroring the JWT shape
+   * exactly: newest first, capped at 50, never padded.
+   */
+  @Get('applications/:applicationId/deployments')
+  @RequireScopes('READ_APPLICATIONS')
+  listDeployments(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    return this.deployments.listForKey(request.apiKey!, applicationId);
+  }
+
+  /**
+   * Key-authenticated deployment inspect. Cross-application, foreign,
+   * and unknown deployments all answer the same uniform 404 as the JWT
+   * route, so the surface never leaks what exists.
+   */
+  @Get('applications/:applicationId/deployments/:deploymentId')
+  @RequireScopes('READ_APPLICATIONS')
+  inspectDeployment(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('deploymentId') deploymentId: string,
+  ) {
+    return this.deployments.getForKey(request.apiKey!, applicationId, deploymentId);
   }
 
   @Post('applications/:applicationId/files')
