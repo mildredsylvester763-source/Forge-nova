@@ -287,13 +287,13 @@ suite('genapi key-authenticated async work flows (real app, real database)', () 
 
   it('keeps foreign and unknown graphs behind the same uniform 404', async () => {
     const probes = [
-      'applications/' + applicationIdA + '/work-graphs/unknown-graph-id',
-      'applications/' + applicationIdA + '/work-graphs/' + foreignGraphId,
-      'applications/' + applicationIdB + '/work-graphs/' + graphIdA,
-    ];
+      ['applications/' + applicationIdA + '/work-graphs/unknown-graph-id', readerKey],
+      ['applications/' + applicationIdA + '/work-graphs/' + foreignGraphId, readerKey],
+      ['applications/' + applicationIdB + '/work-graphs/' + graphIdA, irisWriterKey],
+    ] as Array<[string, string]>;
     const messages = new Set<string>();
-    for (const path of probes) {
-      const refused = await genapiGet(path, readerKey);
+    for (const [path, key] of probes) {
+      const refused = await genapiGet(path, key);
       expect(refused.status).toBe(404);
       messages.add(String((refused.body as { message?: string }).message));
     }
@@ -304,6 +304,11 @@ suite('genapi key-authenticated async work flows (real app, real database)', () 
     // must still answer 404, never leaking that the application exists.
     const foreignKey = await genapiGet('applications/' + applicationIdA + '/work-graphs/' + graphIdA, irisWriterKey);
     expect(foreignKey.status).toBe(404);
+
+    // A same-organization key probing a foreign application is refused
+    // at the application bound with the same honest 404 status.
+    const foreignApp = await genapiGet('applications/' + applicationIdB + '/work-graphs/' + graphIdA, readerKey);
+    expect(foreignApp.status).toBe(404);
   });
 
   it('validates a work graph for a key with parity against the JWT surface', async () => {
