@@ -299,11 +299,21 @@ suite('GENESIS genapi conversation archive flows (real app, real database)', () 
       keyedArchive(applicationAId, conversationId, writerKey.key),
     ]);
     expect(raced.map((response) => response.status).sort()).toEqual([201, 201]);
-    const firstStamp = (raced[0].body as { archivedAt: string }).archivedAt;
-    const secondStamp = (raced[1].body as { archivedAt: string }).archivedAt;
-    expect(new Date(secondStamp).getTime()).toBeGreaterThanOrEqual(
-      new Date(firstStamp).getTime(),
+    // Two concurrent archive stamps are both honest: the requests may
+    // execute in either order on the server, so the only honest law
+    // is that each response carries a real stamp and the stored row
+    // ends at exactly one of the two stamped values.
+    const stamps = raced.map(
+      (response) => new Date((response.body as { archivedAt: string }).archivedAt).getTime(),
     );
+    expect(stamps.every((stamp) => !Number.isNaN(stamp))).toBe(true);
+    const stored = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { archivedAt: true },
+    });
+    const finalStamp = stored && stored.archivedAt ? stored.archivedAt.getTime() : NaN;
+    expect(Number.isNaN(finalStamp)).toBe(false);
+    expect(stamps).toContain(finalStamp);
     expect(await prisma.conversation.count({ where: { id: conversationId } })).toBe(1);
   });
   it('writes no audit rows for keyed or JWT archives', async () => {
