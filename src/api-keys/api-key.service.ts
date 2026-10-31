@@ -157,6 +157,7 @@ export class ApiKeyService {
         scopes: true,
         revokedAt: true,
         expiresAt: true,
+        createdBy: true,
       },
     });
     if (!key) return null;
@@ -176,6 +177,7 @@ export class ApiKeyService {
       organizationId: key.organizationId,
       name: key.name,
       scopes: key.scopes,
+      createdBy: key.createdBy,
     };
   }
 
