@@ -101,17 +101,56 @@ export class ConversationService {
     });
   }
 
+  /**
+   * The one archive core shared by the JWT route and the genapi key
+   * route: the archivedAt stamp is the honest signal that later
+   * message writes on both surfaces refuse with the archived 409.
+   * Archiving an already archived conversation stamps it again,
+   * mirroring the idempotent GitHub conversation lock that succeeds
+   * on every repeat.
+   */
+  private archiveForConversation(conversationId: string) {
+    return this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { archivedAt: new Date() },
+      select: { id: true, title: true, archivedAt: true },
+    });
+  }
+
   async archive(userId: string, conversationId: string) {
     await this.access.requireConversationRole(
       userId,
       conversationId,
       this.access.writeRoles(),
     );
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: { archivedAt: new Date() },
-      select: { id: true, title: true, archivedAt: true },
+    return this.archiveForConversation(conversationId);
+  }
+
+  /**
+   * Key-authenticated conversation archive. Grounded in the GitHub
+   * conversation lock: write access is required to lock an issue, a
+   * locked conversation blocks later comments, and repeat locks
+   * succeed. WRITE_APPLICATIONS grants the archive; the writable
+   * tenant bound refuses foreign, missing, and archived applications
+   * with one uniform 404; the conversation must belong to the named
+   * application so cross-application and unknown ids answer the same
+   * uniform 404; and the response mirrors the JWT archive exactly,
+   * with no audit row because the JWT archive writes none either.
+   */
+  async archiveForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    conversationId: string,
+  ) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, applicationId },
+      select: { id: true },
     });
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found.');
+    }
+    return this.archiveForConversation(conversationId);
   }
 
   /**
