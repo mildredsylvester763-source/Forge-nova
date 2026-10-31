@@ -10,6 +10,8 @@ import { ConversationModule } from '../conversations/conversation.module';
 import { ReferencesModule } from '../references/references.module';
 import { DeploymentModule } from '../deployments/deployment.module';
 import { OrganizationModule } from '../organizations/organization.module';
+import { WorkspaceModule } from '../workspaces/workspace.module';
+import { ProjectModule } from '../projects/project.module';
 import { ApiKeyAdminController, GenapiController } from './api-key.controller';
 import { ApiKeyGuard } from './api-key.guard';
 import { ApiKeyService } from './api-key.service';
@@ -27,6 +29,8 @@ import { ApiKeyService } from './api-key.service';
     ReferencesModule,
     DeploymentModule,
     OrganizationModule,
+    WorkspaceModule,
+    ProjectModule,
   ],
   controllers: [ApiKeyAdminController, GenapiController],
   providers: [ApiKeyService, ApiKeyGuard],
