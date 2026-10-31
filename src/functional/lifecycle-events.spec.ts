@@ -379,10 +379,13 @@ suite('GENESIS automatic lifecycle events (real app, real database, real receive
     const refused = await api(
       'POST',
       '/applications/' + applicationId + '/deployments',
-      { environment: 'production' },
+      { environment: 'PRODUCTION' },
       hans.tokens.accessToken,
     );
     expect(refused.status).toBe(400);
+    const refusedBody = refused.body as { readiness?: { verdict: string } };
+    expect(refusedBody.readiness).toBeDefined();
+    expect(refusedBody.readiness!.verdict).toBe('BLOCKED');
     expect(hitsAt('/main').length).toBe(before);
   });
 
@@ -406,7 +409,7 @@ suite('GENESIS automatic lifecycle events (real app, real database, real receive
     const deployment = await api(
       'POST',
       '/applications/' + applicationId + '/deployments',
-      { environment: 'staging' },
+      { environment: 'STAGING' },
       hans.tokens.accessToken,
     );
     expect(deployment.status).toBe(201);
@@ -417,7 +420,7 @@ suite('GENESIS automatic lifecycle events (real app, real database, real receive
     expect(parsed.event).toBe('deployment.recorded');
     expect(parsed.payload.applicationId).toBe(applicationId);
     expect(parsed.payload.deploymentId).toBe(deploymentId);
-    expect(parsed.payload.environment).toBe('staging');
+    expect(parsed.payload.environment).toBe('STAGING');
     expect(typeof parsed.payload.verdict).toBe('string');
     expect((parsed.payload.verdict as string).length).toBeGreaterThan(0);
     expect(sortedKeys(parsed.payload)).toBe('applicationId,deploymentId,environment,verdict');
@@ -527,16 +530,53 @@ suite('GENESIS automatic lifecycle events (real app, real database, real receive
     );
     expect(trail.status).toBe(200);
     const actions = (trail.body as unknown as Array<{ action: string }>).map((event) => event.action);
-    expect(actions).toContain('application.create');
-    expect(actions).toContain('application.update');
-    expect(actions).toContain('application.archive');
-    expect(actions).toContain('application.restore');
-    expect(actions).toContain('application.checkpoint.create');
-    expect(actions).toContain('application.checkpoint.restore');
-    expect(actions).toContain('application.reference.create');
-    expect(actions).toContain('application.verification.run');
-    expect(actions).toContain('application.deployment.record');
+    // The organization trail is honestly scoped to organization-scoped rows:
+    // registrations, membership changes, and integration or webhook admin
+    // actions. Service-level rows below are verified directly instead.
+    expect(actions).toContain('auth.register');
+    expect(actions).toContain('organization.member.add');
     expect(actions).toContain('webhook.endpoint.create');
     expect(actions.filter((action) => action.startsWith('system.')).length).toBe(0);
+    expect(actions.filter((action) => action.startsWith('webhook.system')).length).toBe(0);
+
+    // Every parent operation still audits itself with its actor on the row.
+    const parentActions = await prisma.auditEvent.findMany({
+      where: {
+        actorUserId: hans.userId,
+        action: {
+          in: [
+            'application.create',
+            'application.update',
+            'application.archive',
+            'application.restore',
+            'application.checkpoint.create',
+            'application.checkpoint.restore',
+            'application.reference.create',
+            'application.verification.run',
+            'application.deployment.record',
+          ],
+        },
+      },
+      select: { action: true },
+    });
+    const seen = new Set(parentActions.map((row) => row.action));
+    expect(seen.has('application.create')).toBe(true);
+    expect(seen.has('application.update')).toBe(true);
+    expect(seen.has('application.archive')).toBe(true);
+    expect(seen.has('application.restore')).toBe(true);
+    expect(seen.has('application.checkpoint.create')).toBe(true);
+    expect(seen.has('application.checkpoint.restore')).toBe(true);
+    expect(seen.has('application.reference.create')).toBe(true);
+    expect(seen.has('application.verification.run')).toBe(true);
+    expect(seen.has('application.deployment.record')).toBe(true);
+
+    // System emission is deliberately silent in the audit trail: the parent
+    // action row is the audit, and delivery rows are the evidence of what was
+    // sent. No emission ghost rows may exist for any actor.
+    const emissionRows = await prisma.auditEvent.findMany({
+      where: { action: { startsWith: 'system.' } },
+      select: { id: true },
+    });
+    expect(emissionRows.length).toBe(0);
   });
 });
