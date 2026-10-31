@@ -4,6 +4,7 @@ import { AuthenticatedUser } from '../auth/auth.types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ApplicationService } from '../applications/application.service';
 import { UpdateApplicationDto } from '../applications/dto/update-application.dto';
+import { CreateApplicationDto } from '../applications/dto/create-application.dto';
 import { CheckpointService } from '../checkpoints/checkpoint.service';
 import { CreateCheckpointDto } from '../checkpoints/dto/create-checkpoint.dto';
 import { FileService } from '../files/file.service';
@@ -149,6 +150,27 @@ export class GenapiController {
     @Param('projectId') projectId: string,
   ) {
     return this.projectService.getForKey(request.apiKey!, projectId);
+  }
+
+  /**
+   * Key-authenticated application create. Grounded in the market
+   * leaders: GitHub organization repositories are created by tokens
+   * inside a specified organization, and Vercel projects are created
+   * by a Bearer token with only the name required. WRITE_APPLICATIONS
+   * grants the create; the writable tenant bound refuses foreign,
+   * missing, and archived projects with one uniform 404; the create
+   * lands in the audit trail exactly once, attributed to the acting
+   * key; and the application.created event reaches project webhook
+   * endpoints exactly like the JWT create.
+   */
+  @Post('projects/:projectId/applications')
+  @RequireScopes('WRITE_APPLICATIONS')
+  createApplicationInProject(
+    @Req() request: KeyedRequest,
+    @Param('projectId') projectId: string,
+    @Body() dto: CreateApplicationDto,
+  ) {
+    return this.apps.createForKey(request.apiKey!, projectId, dto);
   }
 
   @Get('projects')
