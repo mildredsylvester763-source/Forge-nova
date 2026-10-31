@@ -13,6 +13,7 @@ import { VerificationService } from '../verification/verification.service';
 import { ConversationService } from '../conversations/conversation.service';
 import { CreateMessageDto } from '../conversations/dto/create-message.dto';
 import { CreateConversationDto } from '../conversations/dto/create-conversation.dto';
+import { CreateReferenceDto } from '../references/dto/create-reference.dto';
 import { ReferencesService } from '../references/references.service';
 import { JobQueueService } from '../execution/job-queue.service';
 import { WorkGraphService } from '../work-graphs/work-graph.service';
@@ -390,6 +391,27 @@ export class GenapiController {
     @Param('referenceId') referenceId: string,
   ) {
     return this.references.getForKey(request.apiKey!, applicationId, referenceId);
+  }
+
+  /**
+   * Key-authenticated reference create. Grounded in the market
+   * leaders: a GitHub fine-grained token with Contents write creates
+   * a file inside the parent repository, and the OpenAI file create
+   * uploads a document straight from a Bearer API key with an
+   * explicit purpose. WRITE_APPLICATIONS grants the create; the
+   * writable tenant bound refuses foreign, missing, and archived
+   * applications with one uniform 404; and the create lands in the
+   * audit trail exactly once, attributed to the acting key, exactly
+   * like the JWT create.
+   */
+  @Post('applications/:applicationId/references')
+  @RequireScopes('WRITE_APPLICATIONS')
+  createReference(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Body() dto: CreateReferenceDto,
+  ) {
+    return this.references.createForKey(request.apiKey!, applicationId, dto);
   }
 
   
