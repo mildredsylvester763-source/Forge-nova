@@ -181,7 +181,7 @@ suite('GENESIS genapi conversation archive flows (real app, real database)', () 
     const server = app.getHttpServer() as { address: () => { port: number } };
     baseUrl = 'http://127.0.0.1:' + server.address().port + '/api/v1';
     prisma = app.get(PrismaService);
-  };
+  });
 
   afterAll(async () => {
     if (typeof organizationId === 'string' && typeof foreignOrganizationId === 'string') {
