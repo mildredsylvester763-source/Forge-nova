@@ -131,7 +131,6 @@ describe('system event contracts engine', () => {
     for (const bad of [
       [],
       'runs',
-      null,
       [42],
       [{ id: 'run-1', kind: 'SECRET_SCAN' }],
       [{ id: 'run-1', kind: 'SECRET_SCAN', status: '' }],
@@ -144,6 +143,17 @@ describe('system event contracts engine', () => {
       if (!check.ok) {
         expect(check.reason).toBe('system-event-field-invalid: runs');
       }
+    }
+    // A null runs field is a MISSING field by engine semantics: null and
+    // undefined both mean the producer never set the field, while a present
+    // but malformed array is invalid. Both refusals are named and distinct.
+    const nullRuns = buildSystemPayload('verification.completed', {
+      applicationId: 'app-1',
+      runs: null,
+    });
+    expect(nullRuns.ok).toBe(false);
+    if (!nullRuns.ok) {
+      expect(nullRuns.reason).toBe('system-event-field-missing: runs');
     }
   });
 
