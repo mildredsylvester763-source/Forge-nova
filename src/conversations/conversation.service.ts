@@ -211,6 +211,8 @@ export class ConversationService {
         createdAt: true,
       },
     });
+  }
+
   /**
    * Key-authenticated user message. Grounded in the GitHub issue
    * comment write: a token with write permission may post comments and
@@ -257,7 +259,5 @@ export class ConversationService {
         createdAt: true,
       },
     });
-  }
-
   }
 }
