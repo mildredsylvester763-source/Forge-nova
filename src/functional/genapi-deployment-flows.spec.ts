@@ -293,14 +293,28 @@ suite('genapi key-authenticated deployment flows (real app, real database)', () 
     expect(deploymentMessages.size).toBe(1);
     expect([...deploymentMessages][0]).toBe('Deployment not found.');
 
+    // Cross-application and unknown applications answer at the app
+    // guard with one uniform message, whatever endpoint shape is used.
     const appProbes = [
       'applications/' + applicationIdB + '/deployments/' + deploymentIdA1,
       'applications/nonexistent-application/deployments/' + deploymentIdA1,
-      'applications/' + deployableAppId + '/deployments',
-      'applications/' + deployableAppId + '/deployments/readiness',
+      'applications/nonexistent-application/deployments/readiness',
     ];
     const appMessages = new Set<string>();
     for (const path of appProbes) {
+      const probe = await genapiGet(path, readerKey);
+      expect(probe.status).toBe(404);
+      appMessages.add((probe.body as { message: string }).message);
+    }
+
+    // A foreign key is tenant-bounded away from the hank application
+    // with the same uniform message.
+    const foreignKeyProbes = [
+      'applications/' + deployableAppId + '/deployments/readiness',
+      'applications/' + deployableAppId + '/deployments',
+      'applications/' + deployableAppId + '/deployments/' + deploymentIdA1,
+    ];
+    for (const path of foreignKeyProbes) {
       const probe = await genapiGet(path, irisReaderKey);
       expect(probe.status).toBe(404);
       appMessages.add((probe.body as { message: string }).message);
