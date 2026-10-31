@@ -153,6 +153,9 @@ model Organization {
   memberships Membership[]
   workspaces  Workspace[]
   apiKeys     ApiKey[]
+  integrations       Integration[]
+  webhookEndpoints   WebhookEndpoint[]
+  webhookDeliveries  WebhookDelivery[]
 
   @@index([name])
 }
@@ -541,4 +544,68 @@ model ApiKey {
 
   @@index([organizationId, revokedAt])
   @@index([expiresAt])
+}
+
+enum IntegrationStatus {
+  UNVERIFIED
+  CONNECTED
+  FAILED
+}
+
+model Integration {
+  id              String            @id @default(cuid())
+  organizationId  String
+  connectorId     String
+  name            String
+  status          IntegrationStatus @default(UNVERIFIED)
+  credentials     Json
+  lastTestedAt    DateTime?
+  lastTestStatus  String?
+  lastTestDetail  String?           @db.Text
+  createdBy       String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, connectorId, name])
+  @@index([organizationId, status, updatedAt])
+}
+
+model WebhookEndpoint {
+  id                 String            @id @default(cuid())
+  organizationId     String
+  url                String
+  secret             String
+  eventSubscriptions String[]
+  active             Boolean           @default(true)
+  lastSuccessAt      DateTime?
+  lastFailureAt      DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deliveries         WebhookDelivery[]
+
+  @@unique([organizationId, url])
+  @@index([organizationId, active, updatedAt])
+}
+
+model WebhookDelivery {
+  id             String          @id @default(cuid())
+  endpointId     String
+  organizationId String
+  eventName      String
+  payload        Json
+  status         String          @default("PENDING")
+  attempts       Int             @default(0)
+  nextAttemptAt  DateTime?
+  lastStatusCode Int?
+  lastError      String?         @db.Text
+  deliveredAt    DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  endpoint       WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, createdAt])
+  @@index([endpointId, createdAt])
 }
