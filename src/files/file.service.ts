@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
+import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
+import { WriteActor, actorAttribution, keyActorFromApiKey } from '../api-keys/engine/api-key-policy';
 import { AccessControlService } from '../authorization/access-control.service';
 import { normalizeApplicationPath } from '../common/source/path-safety';
 import { PrismaService } from '../database/prisma.service';
@@ -63,6 +65,23 @@ export class FileService {
 
   async write(userId: string, applicationId: string, dto: WriteFileDto) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.writeAsActor({ kind: 'user', userId }, applicationId, dto);
+  }
+
+  /**
+   * Key-authenticated file write. The key is the authorization: the tenant
+   * bound is the application living inside the key organization. Foreign,
+   * missing, and archived applications all answer with the same uniform 404
+   * so a key cannot probe other tenants. Attribution lands on the key
+   * creator when that user still exists.
+   */
+  async writeForKey(key: AuthenticatedApiKey, applicationId: string, dto: WriteFileDto) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    return this.writeAsActor(keyActorFromApiKey(key), applicationId, dto);
+  }
+
+  private async writeAsActor(actor: WriteActor, applicationId: string, dto: WriteFileDto) {
+    const attributedUserId = actorAttribution(actor);
     const path = normalizeApplicationPath(dto.path);
     const content = dto.content;
     if (content.includes('\u0000')) throw new BadRequestException('Source files cannot contain NUL bytes.');
@@ -91,7 +110,7 @@ export class FileService {
               contentHash,
               revision: 1,
               isDeleted: false,
-              createdBy: userId,
+              createdBy: attributedUserId,
             },
           });
           await tx.fileRevision.create({
@@ -101,7 +120,7 @@ export class FileService {
               content,
               contentHash,
               isDeleted: false,
-              createdBy: userId,
+              createdBy: attributedUserId,
             },
           });
           return this.safeFile(created);
@@ -141,7 +160,7 @@ export class FileService {
             content,
             contentHash,
             isDeleted: false,
-            createdBy: userId,
+            createdBy: attributedUserId,
           },
         });
 
