@@ -366,6 +366,7 @@ suite('genapi key-authenticated async work flows (real app, real database)', () 
       'applications/' + applicationIdA + '/work-graphs',
       'applications/' + applicationIdA + '/work-graphs/' + graphIdA,
       'applications/' + applicationIdA + '/work-graphs/' + graphIdA + '/validate',
+      'applications/' + applicationIdA + '/jobs',
       'applications/' + applicationIdA + '/jobs/' + jobAId,
     ];
     for (const path of paths) {
@@ -442,6 +443,95 @@ suite('genapi key-authenticated async work flows (real app, real database)', () 
     expect(rows).toHaveLength(1);
     expect([writerKeyId, writerTwoKeyId]).toContain(rows[0].metadata.apiKeyId);
   });
+  it('lists jobs for a key with parity against the JWT surface', async () => {
+    const listed = await genapiGet('applications/' + applicationIdA + '/jobs', readerKey);
+    expect(listed.status).toBe(200);
+    const items = listed.body as unknown as Array<{ id: string; applicationId: string; type: string; status: string }>;
+    expect(items).toHaveLength(2);
+    expect(items.map((item) => item.id)).toEqual([jobBId, jobAId]);
+    for (const item of items) {
+      expect(item.applicationId).toBe(applicationIdA);
+      expect(item.type).toBe('REQUIREMENTS_ANALYSIS');
+      expect(item.status).toBe('CANCELLED');
+    }
+
+    const jwtListed = await api('GET', '/applications/' + applicationIdA + '/jobs', undefined, hank.tokens.accessToken);
+    expect(jwtListed.status).toBe(200);
+    expect(listed.body).toEqual(jwtListed.body);
+  });
+
+  it('filters the keyed job list by status with honest validation', async () => {
+    const cancelled = await genapiGet('applications/' + applicationIdA + '/jobs?status=CANCELLED', readerKey);
+    expect(cancelled.status).toBe(200);
+    expect((cancelled.body as unknown as Array<{ status: string }>).map((item) => item.status))
+      .toEqual(['CANCELLED', 'CANCELLED']);
+
+    const queued = await genapiGet('applications/' + applicationIdA + '/jobs?status=QUEUED', readerKey);
+    expect(queued.status).toBe(200);
+    expect(queued.body).toEqual([]);
+
+    const succeeded = await genapiGet('applications/' + applicationIdA + '/jobs?status=SUCCEEDED', readerKey);
+    expect(succeeded.status).toBe(200);
+    expect(succeeded.body).toEqual([]);
+
+    const jwtCancelled = await api('GET', '/applications/' + applicationIdA + '/jobs?status=CANCELLED', undefined, hank.tokens.accessToken);
+    expect(jwtCancelled.status).toBe(200);
+    expect(cancelled.body).toEqual(jwtCancelled.body);
+
+    const refused = await genapiGet('applications/' + applicationIdA + '/jobs?status=BOGUS', readerKey);
+    expect(refused.status).toBe(400);
+    expect((refused.body as { message: string }).message).toBe('Job status filter must be one of the known job statuses.');
+
+    const jwtRefused = await api('GET', '/applications/' + applicationIdA + '/jobs?status=BOGUS', undefined, hank.tokens.accessToken);
+    expect(jwtRefused.status).toBe(400);
+  });
+
+  it('keeps the job list tenant-bounded behind a uniform 404', async () => {
+    const probes = [
+      ['applications/unknown-application-id/jobs', readerKey],
+      ['applications/' + applicationIdB + '/jobs', readerKey],
+      ['applications/' + applicationIdA + '/jobs', irisWriterKey],
+    ] as Array<[string, string]>;
+    const messages = new Set<string>();
+    for (const [path, key] of probes) {
+      const refused = await genapiGet(path, key);
+      expect(refused.status).toBe(404);
+      messages.add(String((refused.body as { message?: string }).message));
+    }
+    expect(messages.size).toBe(1);
+    expect(Array.from(messages)[0]).toBe('Application not found.');
+  });
+
+  it('races a keyed list against a keyed cancel without ever surfacing a 500', async () => {
+    const graphC = await createGraph(hank, applicationIdA, 'List Race Graph');
+    const jobCId = await planGraph(hank, graphC.id);
+
+    const raced = await Promise.all([
+      genapiGet('applications/' + applicationIdA + '/jobs?status=QUEUED', readerKey),
+      genapiCancel(applicationIdA, jobCId, writerKey),
+    ]);
+    expect(raced[0].status).toBe(200);
+    expect(raced[1].status).toBe(201);
+    expect((raced[1].body as { status: string }).status).toBe('CANCELLED');
+
+    const { PrismaService } = await import('../database/prisma.service');
+    const prisma = app.get(PrismaService);
+    const stored = await prisma.workJob.findUnique({
+      where: { id: jobCId },
+      select: { status: true },
+    });
+    expect(stored ? stored.status : '').toBe('CANCELLED');
+
+    const after = await genapiGet('applications/' + applicationIdA + '/jobs', readerKey);
+    expect(after.status).toBe(200);
+    const ids = (after.body as unknown as Array<{ id: string }>).map((item) => item.id);
+    expect(ids).toEqual([jobCId, jobBId, jobAId]);
+
+    const queuedNow = await genapiGet('applications/' + applicationIdA + '/jobs?status=QUEUED', readerKey);
+    expect(queuedNow.status).toBe(200);
+    expect(queuedNow.body).toEqual([]);
+  });
+
 
   it('keeps keyed reads working on an archived application while cancel stays blocked', async () => {
     const archived = await api(
@@ -464,6 +554,9 @@ suite('genapi key-authenticated async work flows (real app, real database)', () 
     const job = await genapiGet('applications/' + applicationIdA + '/jobs/' + jobAId, readerKey);
     expect(job.status).toBe(200);
     expect((job.body as { status: string }).status).toBe('CANCELLED');
+
+    const jobList = await genapiGet('applications/' + applicationIdA + '/jobs', readerKey);
+    expect(jobList.status).toBe(200);
 
     const refused = await genapiCancel(applicationIdA, jobAId, writerKey);
     expect(refused.status).toBe(404);
@@ -488,6 +581,8 @@ suite('genapi key-authenticated async work flows (real app, real database)', () 
     expect(read.status).toBe(401);
     const write = await genapiCancel(applicationIdA, jobAId, doomedKey);
     expect(write.status).toBe(401);
+    const listed = await genapiGet('applications/' + applicationIdA + '/jobs', doomedKey);
+    expect(listed.status).toBe(401);
   });
 
   it('honors expiry on the async-work surface', async () => {
@@ -509,6 +604,9 @@ suite('genapi key-authenticated async work flows (real app, real database)', () 
 
     const after = await genapiGet('applications/' + applicationIdA + '/jobs/' + jobAId, fleetingKey);
     expect(after.status).toBe(401);
+
+    const afterList = await genapiGet('applications/' + applicationIdA + '/jobs', fleetingKey);
+    expect(afterList.status).toBe(401);
   });
 
   it('rejects missing credentials with a uniform 401 on every async-work endpoint', async () => {
@@ -516,6 +614,7 @@ suite('genapi key-authenticated async work flows (real app, real database)', () 
       'applications/' + applicationIdA + '/work-graphs',
       'applications/' + applicationIdA + '/work-graphs/' + graphIdA,
       'applications/' + applicationIdA + '/work-graphs/' + graphIdA + '/validate',
+      'applications/' + applicationIdA + '/jobs',
       'applications/' + applicationIdA + '/jobs/' + jobAId,
     ];
     for (const path of reads) {
