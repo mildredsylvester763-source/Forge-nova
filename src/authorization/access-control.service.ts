@@ -92,6 +92,28 @@ export class AccessControlService {
   }
 
   /**
+   * Key-authenticated tenant bound for genapi writes into a project: the
+   * project must be active and live inside the key organization, so
+   * foreign, missing, and archived projects all answer the same uniform
+   * 404 that never leaks what exists in other tenants.
+   */
+  async requireProjectInOrganization(
+    organizationId: string,
+    projectId: string,
+  ): Promise<{ id: string }> {
+    const project = await this.prisma.project.findFirst({
+      where: {
+        id: projectId,
+        status: 'ACTIVE',
+        workspace: { organizationId },
+      },
+      select: { id: true },
+    });
+    if (!project) throw new NotFoundException('Project not found.');
+    return project;
+  }
+
+  /**
    * Key-authenticated tenant bound for genapi reads: the application must
    * live inside the key organization. Reads stay possible on archived
    * applications (archive blocks writes, not reads), mirroring the
