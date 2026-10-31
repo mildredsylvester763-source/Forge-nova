@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, ReferenceStatus } from '@prisma/client';
 import { AiRouterService } from '../ai/ai-router.service';
+import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { WebhookService } from '../integrations/webhook.service';
@@ -82,8 +83,12 @@ export class ReferencesService {
     return reference;
   }
 
-  async list(userId: string, applicationId: string) {
-    await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
+  /**
+   * The one reference-listing core shared by the JWT route and the genapi
+   * key route: newest first, capped at the honest window of 100, full
+   * documents included because a read key may read what members read.
+   */
+  private listReferencesForApplication(applicationId: string) {
     return this.prisma.referenceDocument.findMany({
       where: { applicationId },
       select: { ...REFERENCE_SELECT, content: true },
@@ -92,8 +97,7 @@ export class ReferencesService {
     });
   }
 
-  async findOne(userId: string, applicationId: string, referenceId: string) {
-    await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
+  private async findReferenceInApplication(applicationId: string, referenceId: string) {
     const reference = await this.prisma.referenceDocument.findFirst({
       where: { id: referenceId, applicationId },
       select: { ...REFERENCE_SELECT, content: true },
@@ -102,6 +106,35 @@ export class ReferencesService {
       throw new NotFoundException('Reference not found.');
     }
     return reference;
+  }
+
+  async list(userId: string, applicationId: string) {
+    await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
+    return this.listReferencesForApplication(applicationId);
+  }
+
+  /**
+   * Key-authenticated reference listing. Foreign and missing applications
+   * answer the same uniform 404; reads stay possible on archived
+   * applications and never write audit rows.
+   */
+  async listForKey(key: AuthenticatedApiKey, applicationId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    return this.listReferencesForApplication(applicationId);
+  }
+
+  async findOne(userId: string, applicationId: string, referenceId: string) {
+    await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
+    return this.findReferenceInApplication(applicationId, referenceId);
+  }
+
+  /**
+   * Key-authenticated reference inspect. Foreign, cross-application, and
+   * missing references all answer the same uniform 404 as the JWT route.
+   */
+  async getForKey(key: AuthenticatedApiKey, applicationId: string, referenceId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    return this.findReferenceInApplication(applicationId, referenceId);
   }
 
   async remove(userId: string, applicationId: string, referenceId: string) {
