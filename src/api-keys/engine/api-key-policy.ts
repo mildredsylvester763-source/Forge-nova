@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
 
 export const API_KEY_PREFIX = 'gn_live_';
 export const API_KEY_SECRET_MIN_CHARS = 20;
@@ -150,9 +151,14 @@ export function actorAttribution(actor: WriteActor): string | null {
 export function actorAuditMetadata(
   actor: WriteActor,
   base: Record<string, unknown>,
-): Record<string, unknown> {
-  if (actor.kind === 'user') return base;
-  return { ...base, via: 'genapi', apiKeyId: actor.apiKeyId, apiKeyName: actor.apiKeyName };
+): Prisma.InputJsonValue {
+  if (actor.kind === 'user') return base as Prisma.InputJsonValue;
+  return {
+    ...base,
+    via: 'genapi',
+    apiKeyId: actor.apiKeyId,
+    apiKeyName: actor.apiKeyName,
+  } as Prisma.InputJsonValue;
 }
 
 /**
