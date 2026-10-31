@@ -69,6 +69,38 @@ export class ConversationService {
     });
   }
 
+  /**
+   * Key-authenticated conversation create. Grounded in the GitHub
+   * issue create and the OpenAI thread create: a token with write
+   * permission may create the thread under a specific parent, and an
+   * empty thread is an honest create. The writable tenant bound
+   * refuses foreign, missing, and archived applications with the
+   * same uniform 404 the keyed writes already answer, and the create
+   * mirrors the JWT create exactly - same optional title trim law,
+   * same response shape, and no audit row, because the JWT create
+   * writes none either.
+   */
+  async createForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    dto: CreateConversationDto,
+  ) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    return this.prisma.conversation.create({
+      data: {
+        applicationId,
+        title: dto.title?.trim() || null,
+      },
+      select: {
+        id: true,
+        applicationId: true,
+        title: true,
+        archivedAt: true,
+        createdAt: true,
+      },
+    });
+  }
+
   async archive(userId: string, conversationId: string) {
     await this.access.requireConversationRole(
       userId,
