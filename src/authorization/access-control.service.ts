@@ -65,6 +65,32 @@ export class AccessControlService {
     return application;
   }
 
+  /**
+   * Key-authenticated tenant bound for genapi writes: the application
+   * must live inside the key organization and be writable (not archived,
+   * active project). Foreign, missing, and archived applications are all
+   * refused with the same uniform 404 so a key cannot probe other
+   * tenants or learn that a foreign application exists.
+   */
+  async requireApplicationInOrganization(
+    organizationId: string,
+    applicationId: string,
+  ): Promise<{ id: string; projectId: string }> {
+    const application = await this.prisma.application.findFirst({
+      where: {
+        id: applicationId,
+        status: { not: 'ARCHIVED' },
+        project: {
+          status: 'ACTIVE',
+          workspace: { organizationId },
+        },
+      },
+      select: { id: true, projectId: true },
+    });
+    if (!application) throw new NotFoundException('Application not found.');
+    return application;
+  }
+
   async requireWorkGraphRole(
     userId: string,
     graphId: string,
