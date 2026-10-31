@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, VerificationKind } from '@prisma/client';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
+import { WebhookService } from '../integrations/webhook.service';
 import { SecretScannerService } from '../security/secret-scanner.service';
 import { VerifiableKind } from './dto/run-verification.dto';
 import { auditDependencyManifests } from './engine/dependency-audit.engine';
@@ -23,6 +24,7 @@ export class VerificationService {
     private readonly prisma: PrismaService,
     private readonly access: AccessControlService,
     private readonly secretScanner: SecretScannerService,
+    private readonly events: WebhookService,
   ) {}
 
   async runForApplication(
@@ -53,6 +55,10 @@ export class VerificationService {
       const run = await this.persistRun(applicationId, userId, jobId, kind, execution, files.length);
       runs.push(run);
     }
+    await this.events.emitForApplication(applicationId, 'verification.completed', {
+      applicationId,
+      runs: runs.map((run) => ({ id: run.id, kind: run.kind, status: run.status })),
+    });
     return runs;
   }
 
