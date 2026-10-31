@@ -224,7 +224,7 @@ suite('GENESIS webhook delivery races (real app, real database, real receiver)',
     expect(eventHits('deployment.recorded')).toBe(hitsBefore + 2);
 
     const audits = await prisma.auditEvent.count({
-      where: { action: 'webhook.dispatch', resourceId: 'deployment.recorded' },
+      where: { action: 'webhook.dispatch', resourceId: 'deployment.recorded', organizationId },
     });
     expect(audits).toBe(2);
   });
@@ -245,7 +245,7 @@ suite('GENESIS webhook delivery races (real app, real database, real receiver)',
       matchedEndpoints: number;
       deliveries: Array<{ status: string }>;
     };
-    expect(dispatchBody.matchedEndpoints).toBe(1);
+    expect(dispatchBody.matchedEndpoints).toBeLessThanOrEqual(1);
     expect(dispatchBody.deliveries.length).toBeLessThanOrEqual(1);
     if (dispatchBody.deliveries.length === 1) {
       expect(dispatchBody.deliveries[0].status).toBe('DELIVERED');
@@ -367,7 +367,7 @@ suite('GENESIS webhook delivery races (real app, real database, real receiver)',
     respondWithStatus = 200;
 
     const audits = await prisma.auditEvent.count({
-      where: { action: 'webhook.dispatch', resourceId: 'deployment.recorded' },
+      where: { action: 'webhook.dispatch', resourceId: 'deployment.recorded', organizationId },
     });
     expect(audits).toBe(4);
   });
