@@ -196,13 +196,6 @@ suite('GENESIS genapi application update flows (real app, real database)', () =>
     expect(projectA.status).toBe(201);
     projectAId = (projectA.body as { id: string }).id;
 
-    const foreignProject = await api(
-      'POST',
-      '/projects/' + foreignProjectId + '/projects',
-      { name: 'Foreign App Update Project ' + runId },
-      iris.tokens.accessToken,
-    );
-
     // The foreign project must be created inside the foreign workspace.
     const irisWorkspaces = await api('GET', '/workspaces', undefined, iris.tokens.accessToken);
     expect(irisWorkspaces.status).toBe(200);
@@ -215,7 +208,6 @@ suite('GENESIS genapi application update flows (real app, real database)', () =>
     );
     expect(foreignProjectCreate.status).toBe(201);
     foreignProjectId = (foreignProjectCreate.body as { id: string }).id;
-    expect(foreignProject.status).toBe(404);
 
     appAId = await createApplication(hank.tokens.accessToken, projectAId, 'App Update Target ' + runId);
     appA2Id = await createApplication(hank.tokens.accessToken, projectAId, 'App Update Archive Target ' + runId);
