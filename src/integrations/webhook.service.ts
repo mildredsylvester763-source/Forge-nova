@@ -7,6 +7,7 @@ import { CreateWebhookEndpointDto } from './dto/create-webhook-endpoint.dto';
 import { DispatchEventDto } from './dto/dispatch-event.dto';
 import { backoffSeconds, canRetryNow, nextDeliveryStatus } from './engine/delivery-backoff.engine';
 import { matchesSubscriptions, validateEventName, validateSubscription } from './engine/event-subscription.engine';
+import { buildSystemPayload } from './engine/system-events.engine';
 import { SIGNATURE_HEADER, signPayload } from './engine/webhook-signature.engine';
 
 const OUTBOUND_TIMEOUT_MS = 3000;
@@ -270,6 +271,98 @@ export class WebhookService {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+  }
+
+  /**
+   * System emission - the outbox law: emission happens AFTER the parent
+   * operation has committed, is best-effort, and can NEVER fail or roll
+   * back the parent flow. Delivery failures are recorded on the delivery
+   * row (where the retry route can reach them), never thrown. There is
+   * no audit row here: the parent action already audits itself, and the
+   * delivery rows are the evidence of what was sent.
+   */
+  async emitSystemEvent(input: {
+    organizationId: string;
+    eventName: string;
+    payload: Record<string, unknown>;
+  }): Promise<{ emitted: boolean; matchedEndpoints: number; reason?: string }> {
+    try {
+      const validated = buildSystemPayload(input.eventName, input.payload);
+      if (!validated.ok) {
+        return { emitted: false, matchedEndpoints: 0, reason: validated.reason };
+      }
+      const endpoints = await this.prisma.webhookEndpoint.findMany({
+        where: { organizationId: input.organizationId, active: true },
+      });
+      const matching = endpoints.filter((endpoint) =>
+        matchesSubscriptions(endpoint.eventSubscriptions, input.eventName),
+      );
+      for (const endpoint of matching) {
+        const delivery = await this.prisma.webhookDelivery.create({
+          data: {
+            endpointId: endpoint.id,
+            organizationId: input.organizationId,
+            eventName: input.eventName,
+            payload: validated.value as Prisma.InputJsonValue,
+            status: 'PENDING',
+            attempts: 0,
+          },
+          select: DELIVERY_SELECT,
+        });
+        await this.attemptDelivery(delivery.id);
+      }
+      return { emitted: true, matchedEndpoints: matching.length };
+    } catch {
+      return { emitted: false, matchedEndpoints: 0, reason: 'system-event-emission-failed' };
+    }
+  }
+
+  /** Emits a system event for an application, resolving its organization. */
+  async emitForApplication(
+    applicationId: string,
+    eventName: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ emitted: boolean; matchedEndpoints: number; reason?: string }> {
+    try {
+      const application = await this.prisma.application.findUnique({
+        where: { id: applicationId },
+        select: { project: { select: { workspace: { select: { organizationId: true } } } } },
+      });
+      if (!application) {
+        return { emitted: false, matchedEndpoints: 0, reason: 'system-event-application-not-found' };
+      }
+      return await this.emitSystemEvent({
+        organizationId: application.project.workspace.organizationId,
+        eventName,
+        payload,
+      });
+    } catch {
+      return { emitted: false, matchedEndpoints: 0, reason: 'system-event-emission-failed' };
+    }
+  }
+
+  /** Emits a system event for a project, resolving its organization. */
+  async emitForProject(
+    projectId: string,
+    eventName: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ emitted: boolean; matchedEndpoints: number; reason?: string }> {
+    try {
+      const project = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { workspace: { select: { organizationId: true } } },
+      });
+      if (!project) {
+        return { emitted: false, matchedEndpoints: 0, reason: 'system-event-project-not-found' };
+      }
+      return await this.emitSystemEvent({
+        organizationId: project.workspace.organizationId,
+        eventName,
+        payload,
+      });
+    } catch {
+      return { emitted: false, matchedEndpoints: 0, reason: 'system-event-emission-failed' };
+    }
   }
 
   /**
