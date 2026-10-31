@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { MembershipRole, Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
+import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { AddMemberDto } from './dto/add-member.dto';
@@ -283,8 +284,13 @@ export class OrganizationService {
     });
   }
 
-  async listAuditEvents(userId: string, organizationId: string) {
-    await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+  /**
+   * Shared audit listing core so the JWT admin surface and the
+   * key-authenticated surface can never drift apart. Newest first,
+   * capped at 50 - the same default-desc law the GitHub audit log
+   * REST listing follows.
+   */
+  private async listAuditEventsForOrganization(organizationId: string) {
     return this.prisma.auditEvent.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
@@ -300,5 +306,22 @@ export class OrganizationService {
         actor: { select: { email: true } },
       },
     });
+  }
+
+  async listAuditEvents(userId: string, organizationId: string) {
+    await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+    return this.listAuditEventsForOrganization(organizationId);
+  }
+
+  /**
+   * Key-authenticated organization audit trail. Grounded in the GitHub
+   * audit log REST surface: reading audit data is a deliberately gated
+   * read behind a dedicated read permission, and the trail comes back
+   * newest first. The key is the tenant bound - there is no path
+   * parameter to probe, so a key can only ever read the trail of its
+   * own organization. Reads never write audit rows.
+   */
+  async listAuditEventsForKey(key: AuthenticatedApiKey) {
+    return this.listAuditEventsForOrganization(key.organizationId);
   }
 }
