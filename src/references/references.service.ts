@@ -46,7 +46,7 @@ export class ReferencesService {
   ) {}
 
   async create(userId: string, applicationId: string, dto: CreateReferenceDto) {
-    const validated = validateReferenceInput(dto);
+    const validated = this.validateReferenceInput(dto);
     this.secrets.assertNoSecrets(validated.content);
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
     return this.persistReference({ kind: 'user', userId }, applicationId, validated);
@@ -64,9 +64,21 @@ export class ReferencesService {
    */
   async createForKey(key: AuthenticatedApiKey, applicationId: string, dto: CreateReferenceDto) {
     await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
-    const validated = validateReferenceInput(dto);
+    const validated = this.validateReferenceInput(dto);
     this.secrets.assertNoSecrets(validated.content);
     return this.persistReference(keyActorFromApiKey(key), applicationId, validated);
+  }
+
+  /**
+   * The input engine refuses by name; a refusal is a named 400, never
+   * a raw engine error surfacing as a 500 on either surface.
+   */
+  private validateReferenceInput(dto: CreateReferenceDto) {
+    try {
+      return validateReferenceInput(dto);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Invalid reference input.');
+    }
   }
 
   /**
