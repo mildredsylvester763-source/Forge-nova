@@ -9,6 +9,13 @@ import {
   JobType,
   Prisma,
 } from '@prisma/client';
+import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
+import {
+  actorAttribution,
+  actorAuditMetadata,
+  actorAuditOrganization,
+  keyActorFromApiKey,
+} from '../api-keys/engine/api-key-policy';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -24,6 +31,20 @@ export class JobQueueService {
     private readonly prisma: PrismaService,
     private readonly access: AccessControlService,
   ) {}
+
+  private readonly jobViewSelect = {
+    id: true,
+    applicationId: true,
+    type: true,
+    status: true,
+    result: true,
+    errorCode: true,
+    attemptCount: true,
+    maxAttempts: true,
+    createdAt: true,
+    startedAt: true,
+    finishedAt: true,
+  } as const;
 
   async enqueue(
     userId: string,
@@ -337,12 +358,78 @@ export class JobQueueService {
 
   async requestCancellation(userId: string, applicationId: string, jobId: string) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    const job = await this.findCancellationTarget(jobId, applicationId);
+    const outcome = await this.applyCancellation(job);
+    return outcome.response;
+  }
+
+  /**
+   * Key-authenticated job inspection. Reads stay possible on archived
+   * applications; foreign, missing, and unknown jobs answer with the
+   * same uniform 404 as the JWT surface.
+   */
+  async getForKey(key: AuthenticatedApiKey, applicationId: string, jobId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
     const job = await this.prisma.workJob.findFirst({
+      where: { id: jobId, applicationId },
+      select: this.jobViewSelect,
+    });
+    if (!job) throw new NotFoundException('Job not found.');
+    return job;
+  }
+
+  /**
+   * Key-authenticated cancellation. The key is the authorization: the
+   * tenant bound refuses foreign, missing, and archived applications
+   * with the same uniform 404. Exactly like the write surface, the
+   * action lands in the organization audit trail stamped with the
+   * acting key - but only when the state actually changed, so a replay
+   * or a lost race never forges a second audit row.
+   */
+  async cancelForKey(key: AuthenticatedApiKey, applicationId: string, jobId: string) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    const job = await this.findCancellationTarget(jobId, applicationId);
+    const outcome = await this.applyCancellation(job);
+    if (outcome.changed) {
+      const actor = keyActorFromApiKey(key);
+      await this.prisma.auditEvent.create({
+        data: {
+          actorUserId: actorAttribution(actor),
+          organizationId: actorAuditOrganization(actor),
+          action: 'job.cancel',
+          resourceType: 'job',
+          resourceId: jobId,
+          outcome: 'SUCCESS',
+          metadata: actorAuditMetadata(actor, {
+            applicationId,
+            jobId,
+            status: outcome.response.status,
+          }),
+        },
+      });
+    }
+    return outcome.response;
+  }
+
+  private findCancellationTarget(jobId: string, applicationId: string) {
+    return this.prisma.workJob.findFirst({
       where: { id: jobId, applicationId },
       select: { id: true, status: true, cancelRequestedAt: true },
     });
-    if (!job) throw new NotFoundException('Job not found.');
+  }
 
+  /**
+   * The single cancellation state machine shared by the JWT route and
+   * the genapi key route. changed is true only when this call actually
+   * moved the job: queued to cancelled, or the first cancellation
+   * request on a running job. Replays and lost races answer with the
+   * honest current state and changed false.
+   */
+  private async applyCancellation(
+    job: { id: string; status: JobStatus; cancelRequestedAt: Date | null } | null,
+  ) {
+    if (!job) throw new NotFoundException('Job not found.');
+    const jobId = job.id;
     const now = new Date();
     if (job.status === JobStatus.QUEUED) {
       const cancelled = await this.prisma.workJob.updateMany({
@@ -354,7 +441,7 @@ export class JobQueueService {
         },
       });
       if (cancelled.count === 1) {
-        return { id: jobId, status: JobStatus.CANCELLED };
+        return { changed: true, response: { id: jobId, status: JobStatus.CANCELLED } };
       }
       const latest = await this.prisma.workJob.findUnique({
         where: { id: jobId },
@@ -367,12 +454,22 @@ export class JobQueueService {
           data: { cancelRequestedAt: now },
         });
         return {
-          id: jobId,
-          status: JobStatus.RUNNING,
-          cancellationRequested: requested.count === 1 || latest.cancelRequestedAt !== null,
+          changed: requested.count === 1,
+          response: {
+            id: jobId,
+            status: JobStatus.RUNNING,
+            cancellationRequested: requested.count === 1 || latest.cancelRequestedAt !== null,
+          },
         };
       }
-      return { id: jobId, status: latest.status, cancellationRequested: latest.cancelRequestedAt !== null };
+      return {
+        changed: false,
+        response: {
+          id: jobId,
+          status: latest.status,
+          cancellationRequested: latest.cancelRequestedAt !== null,
+        },
+      };
     }
 
     if (job.status === JobStatus.RUNNING) {
@@ -386,13 +483,19 @@ export class JobQueueService {
       });
       if (!latest) throw new NotFoundException('Job not found.');
       return {
-        id: jobId,
-        status: latest.status,
-        cancellationRequested: requested.count === 1 || Boolean(latest.cancelRequestedAt),
+        changed: requested.count === 1,
+        response: {
+          id: jobId,
+          status: latest.status,
+          cancellationRequested: requested.count === 1 || Boolean(latest.cancelRequestedAt),
+        },
       };
     }
 
-    return { id: jobId, status: job.status, cancellationRequested: false };
+    return {
+      changed: false,
+      response: { id: jobId, status: job.status, cancellationRequested: false },
+    };
   }
 
   async findActiveGraphPlanJob(applicationId: string, graphId: string) {
@@ -415,19 +518,7 @@ export class JobQueueService {
     await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
     const job = await this.prisma.workJob.findFirst({
       where: { id: jobId, applicationId },
-      select: {
-        id: true,
-        applicationId: true,
-        type: true,
-        status: true,
-        result: true,
-        errorCode: true,
-        attemptCount: true,
-        maxAttempts: true,
-        createdAt: true,
-        startedAt: true,
-        finishedAt: true,
-      },
+      select: this.jobViewSelect,
     });
     if (!job) throw new NotFoundException('Job not found.');
     return job;
