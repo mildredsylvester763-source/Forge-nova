@@ -8,6 +8,8 @@ import { CreateCheckpointDto } from '../checkpoints/dto/create-checkpoint.dto';
 import { FileService } from '../files/file.service';
 import { WriteFileDto } from '../files/dto/write-file.dto';
 import { VerificationService } from '../verification/verification.service';
+import { ConversationService } from '../conversations/conversation.service';
+import { ReferencesService } from '../references/references.service';
 import { JobQueueService } from '../execution/job-queue.service';
 import { WorkGraphService } from '../work-graphs/work-graph.service';
 import { RunVerificationDto } from '../verification/dto/run-verification.dto';
@@ -67,6 +69,8 @@ export class GenapiController {
     private readonly apps: ApplicationService,
     private readonly jobs: JobQueueService,
     private readonly graphs: WorkGraphService,
+    private readonly conversations: ConversationService,
+    private readonly references: ReferencesService,
   ) {}
 
   @Get('me')
@@ -184,7 +188,76 @@ export class GenapiController {
     return this.jobs.listForKey(request.apiKey!, applicationId, status);
   }
 
-    @Get('applications/:applicationId/jobs/:jobId')
+  /**
+   * Key-authenticated conversation listing, mirroring the JWT shape
+   * exactly (newest activity first, honest message counts). Grounded in
+   * the GitHub issue-comment listing: reading needs only read access,
+   * and there is no audit row for reads.
+   */
+  @Get('applications/:applicationId/conversations')
+  @RequireScopes('READ_APPLICATIONS')
+  listConversations(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    return this.conversations.listForKey(request.apiKey!, applicationId);
+  }
+
+  /**
+   * Key-authenticated message listing with the same window law as the
+   * JWT route: take 1-100 validated by the shared parse law, an optional
+   * before cursor, and messages returned oldest-first like GitHub issue
+   * comments. The conversation must belong to the named application, so
+   * cross-application, foreign, and unknown ids all answer one uniform
+   * 404 that never leaks what exists.
+   */
+  @Get('applications/:applicationId/conversations/:conversationId/messages')
+  @RequireScopes('READ_APPLICATIONS')
+  listConversationMessages(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('conversationId') conversationId: string,
+    @Query('take') take?: string,
+    @Query('before') before?: string,
+  ) {
+    return this.conversations.listMessagesForKey(
+      request.apiKey!,
+      applicationId,
+      conversationId,
+      take,
+      before,
+    );
+  }
+
+  /**
+   * Key-authenticated reference listing, mirroring the JWT shape exactly
+   * (newest first, the honest window of 100, full documents included).
+   */
+  @Get('applications/:applicationId/references')
+  @RequireScopes('READ_APPLICATIONS')
+  listReferences(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    return this.references.listForKey(request.apiKey!, applicationId);
+  }
+
+  /**
+   * Key-authenticated reference inspect. Foreign, cross-application, and
+   * missing references all answer the same uniform 404 as the JWT route.
+   */
+  @Get('applications/:applicationId/references/:referenceId')
+  @RequireScopes('READ_APPLICATIONS')
+  inspectReference(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('referenceId') referenceId: string,
+  ) {
+    return this.references.getForKey(request.apiKey!, applicationId, referenceId);
+  }
+
+  
+  @Get('applications/:applicationId/jobs/:jobId')
   @RequireScopes('READ_APPLICATIONS')
   inspectJob(
     @Req() request: KeyedRequest,
