@@ -50,7 +50,7 @@ export class ApiKeyAdminController {
 
 /**
  * The key-authenticated GENESIS API surface. Every route is tenant-
- * bounded to the key own organization and gated by a concrete scope.
+ * bounded to the organization the key belongs to and gated by a concrete scope.
  * The WRITE_APPLICATIONS scope is honored by real write endpoints
  * below; it exists nowhere else.
  */
