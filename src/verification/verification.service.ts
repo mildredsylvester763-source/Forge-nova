@@ -66,6 +66,34 @@ export class VerificationService {
     return this.runKindsForActor(keyActorFromApiKey(key), applicationId, kinds, undefined);
   }
 
+  /**
+   * Key-authenticated verification listing. Reads stay possible on
+   * archived applications; foreign and missing applications answer
+   * with the same uniform 404.
+   */
+  async listForApplicationForKey(key: AuthenticatedApiKey, applicationId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    return this.prisma.verificationRun.findMany({
+      where: { applicationId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  /**
+   * Key-authenticated verification inspect. Foreign runs are invisible:
+   * a run id from another tenant answers the same uniform 404 as an
+   * unknown one.
+   */
+  async findOneForKey(key: AuthenticatedApiKey, applicationId: string, verificationId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    const run = await this.prisma.verificationRun.findFirst({
+      where: { id: verificationId, applicationId },
+    });
+    if (!run) throw new NotFoundException('Verification run not found.');
+    return run;
+  }
+
   private async runKindsForActor(
     actor: WriteActor,
     applicationId: string,
