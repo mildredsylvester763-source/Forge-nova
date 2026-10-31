@@ -62,7 +62,7 @@ export class GenapiController {
     private readonly files: FileService,
     private readonly checkpoints: CheckpointService,
     private readonly verifications: VerificationService,
-    private readonly applications: ApplicationService,
+    private readonly apps: ApplicationService,
   ) {}
 
   @Get('me')
@@ -133,7 +133,7 @@ export class GenapiController {
     @Req() request: KeyedRequest,
     @Param('applicationId') applicationId: string,
   ) {
-    return this.applications.archiveForKey(request.apiKey!, applicationId);
+    return this.apps.archiveForKey(request.apiKey!, applicationId);
   }
 
   @Post('applications/:applicationId/restore')
@@ -142,6 +142,6 @@ export class GenapiController {
     @Req() request: KeyedRequest,
     @Param('applicationId') applicationId: string,
   ) {
-    return this.applications.restoreForKey(request.apiKey!, applicationId);
+    return this.apps.restoreForKey(request.apiKey!, applicationId);
   }
 }
