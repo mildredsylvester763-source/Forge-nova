@@ -7,5 +7,6 @@ import { ConversationService } from './conversation.service';
   imports: [SecurityModule],
   controllers: [ConversationController],
   providers: [ConversationService],
+  exports: [ConversationService],
 })
 export class ConversationModule {}
