@@ -3,6 +3,7 @@ import { Request } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ApplicationService } from '../applications/application.service';
+import { UpdateApplicationDto } from '../applications/dto/update-application.dto';
 import { CheckpointService } from '../checkpoints/checkpoint.service';
 import { CreateCheckpointDto } from '../checkpoints/dto/create-checkpoint.dto';
 import { FileService } from '../files/file.service';
@@ -433,6 +434,26 @@ export class GenapiController {
     @Param('applicationId') applicationId: string,
   ) {
     return this.apps.restoreForKey(request.apiKey!, applicationId);
+  }
+
+  /**
+   * Key-authenticated application update. Grounded in the market
+   * leaders: GitHub repository updates and Vercel project updates are
+   * partial metadata writes by id behind write permission, never read.
+   * The keyed update mirrors the JWT update exactly - same four
+   * optional fields, same honest audit row, same application.updated
+   * event - with the acting key attributed in the trail, and the
+   * writable tenant bound refuses foreign, missing, and archived
+   * applications with one uniform 404.
+   */
+  @Post('applications/:applicationId/update')
+  @RequireScopes('WRITE_APPLICATIONS')
+  updateApplication(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Body() dto: UpdateApplicationDto,
+  ) {
+    return this.apps.updateForKey(request.apiKey!, applicationId, dto);
   }
 
   /**
