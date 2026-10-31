@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -11,7 +11,23 @@ type AuthenticatedRequest = Request & { user: AuthenticatedUser };
 export class JobController {
   constructor(private readonly jobs: JobQueueService) {}
 
-  @Get(':jobId')
+  /**
+   * Lists the jobs of an application, newest first, optionally narrowed
+   * by a validated status filter. Read access matches the inspect route:
+   * every membership role may list. Mirrors the GitHub workflow-run
+   * listing: read access is enough and unknown status filters are
+   * refused by name instead of being silently ignored.
+   */
+  @Get()
+  list(
+    @Req() request: AuthenticatedRequest,
+    @Param('applicationId') applicationId: string,
+    @Query('status') status?: string,
+  ) {
+    return this.jobs.listForUser(request.user.sub, applicationId, status);
+  }
+
+    @Get(':jobId')
   get(
     @Req() request: AuthenticatedRequest,
     @Param('applicationId') applicationId: string,
