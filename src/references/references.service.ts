@@ -236,8 +236,37 @@ export class ReferencesService {
    * reference is marked EXTRACTION_FAILED with the recorded error; a later
    * extract call can retry. No requirement is ever invented or padded.
    */
+  /**
+   * JWT extract: a project member with a write role triggers the AI
+   * requirement extraction through the same core the key route uses.
+   */
   async extract(userId: string, applicationId: string, referenceId: string, jobId?: string) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.extractForActor({ kind: 'user', userId }, applicationId, referenceId, jobId);
+  }
+
+  /**
+   * Key-authenticated extract. Grounded in the market leader: attaching
+   * an uploaded file to an OpenAI vector store triggers AI processing
+   * straight from an API key, and the file carries its honest processing
+   * status with a recorded last_error. The key IS the authorization: the
+   * writable tenant bound refuses foreign, missing, and archived
+   * applications with one uniform 404, a processing failure marks the
+   * reference EXTRACTION_FAILED with the recorded error, and a success
+   * lands in the audit trail exactly once, attributed to the acting key.
+   */
+  async extractForKey(key: AuthenticatedApiKey, applicationId: string, referenceId: string, jobId?: string) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    return this.extractForActor(keyActorFromApiKey(key), applicationId, referenceId, jobId);
+  }
+
+  /**
+   * The one extraction core shared by the JWT route and the genapi key
+   * route, so the two surfaces can never drift apart: the same reference
+   * bound, the same honest failure recording, and the same audit law.
+   */
+  private async extractForActor(actor: WriteActor, applicationId: string, referenceId: string, jobId?: string) {
+    const attributedUserId = actorAttribution(actor);
     const reference = await this.prisma.referenceDocument.findFirst({
       where: { id: referenceId, applicationId },
       select: { id: true, title: true, kind: true, content: true },
@@ -287,16 +316,17 @@ export class ReferencesService {
 
       await this.prisma.auditEvent.create({
         data: {
-          actorUserId: userId,
+          actorUserId: attributedUserId,
+          organizationId: actorAuditOrganization(actor),
           action: 'application.reference.extract',
           resourceType: 'reference',
           resourceId: reference.id,
           outcome: 'SUCCESS',
-          metadata: {
+          metadata: actorAuditMetadata(actor, {
             applicationId,
             requirementCount: extracted.requirements.length,
             openQuestionCount: extracted.openQuestions.length,
-          },
+          }),
         },
       });
 
