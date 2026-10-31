@@ -14,6 +14,8 @@ import { JobQueueService } from '../execution/job-queue.service';
 import { WorkGraphService } from '../work-graphs/work-graph.service';
 import { DeploymentService } from '../deployments/deployment.service';
 import { OrganizationService } from '../organizations/organization.service';
+import { WorkspaceService } from '../workspaces/workspace.service';
+import { ProjectService } from '../projects/project.service';
 import { RunVerificationDto } from '../verification/dto/run-verification.dto';
 import { ApiKeyGuard, AuthenticatedApiKey, RequireScopes } from './api-key.guard';
 import { ApiKeyService } from './api-key.service';
@@ -75,6 +77,8 @@ export class GenapiController {
     private readonly references: ReferencesService,
     private readonly deployments: DeploymentService,
     private readonly organizations: OrganizationService,
+    private readonly workspaces: WorkspaceService,
+    private readonly projects: ProjectService,
   ) {}
 
   @Get('me')
@@ -98,6 +102,52 @@ export class GenapiController {
   @RequireScopes('READ_ORGANIZATION')
   listAuditEvents(@Req() request: KeyedRequest) {
     return this.organizations.listAuditEventsForKey(request.apiKey!);
+  }
+
+  /**
+   * Key-authenticated workspace listing. Grounded in the GitHub team
+   * listing: organization grouping structures are readable with the
+   * organization-level read permission, and the rows mirror the JWT
+   * workspace listing exactly so the two surfaces can never drift
+   * apart. The listing is bounded to the key organization and reads
+   * never audit.
+   */
+  @Get('workspaces')
+  @RequireScopes('READ_ORGANIZATION')
+  listWorkspaces(@Req() request: KeyedRequest) {
+    return this.workspaces.listForKey(request.apiKey!);
+  }
+
+  /**
+   * Key-authenticated project listing inside one workspace. Grounded in
+   * the GitHub project listing: the Projects read permission is enough,
+   * and a workspace outside the key organization answers the same
+   * uniform 404 as an unknown one, so the surface never leaks what
+   * exists in other tenants.
+   */
+  @Get('workspaces/:workspaceId/projects')
+  @RequireScopes('READ_PROJECTS')
+  listWorkspaceProjects(
+    @Req() request: KeyedRequest,
+    @Param('workspaceId') workspaceId: string,
+  ) {
+    return this.projects.listInWorkspaceForKey(request.apiKey!, workspaceId);
+  }
+
+  /**
+   * Key-authenticated project inspection. Grounded in the GitHub
+   * single-project read: the Projects read permission is enough, the
+   * shape mirrors the JWT inspection exactly (nested applications
+   * included), and foreign, unknown, and deleted projects all answer
+   * one uniform 404.
+   */
+  @Get('projects/:projectId')
+  @RequireScopes('READ_PROJECTS')
+  inspectProject(
+    @Req() request: KeyedRequest,
+    @Param('projectId') projectId: string,
+  ) {
+    return this.projects.getForKey(request.apiKey!, projectId);
   }
 
   @Get('projects')
