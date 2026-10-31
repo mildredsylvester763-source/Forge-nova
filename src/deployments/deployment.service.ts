@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { WebhookService } from '../integrations/webhook.service';
@@ -20,6 +21,18 @@ export class DeploymentService {
 
   async getReadiness(userId: string, applicationId: string): Promise<ReadinessReport> {
     await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
+    const { report } = await this.buildReport(applicationId);
+    return report;
+  }
+
+  /**
+   * Key-authenticated readiness report. Grounded in the GitHub
+   * deployments read surface: reading deployments and their statuses
+   * needs only read access, so the report never writes an audit row
+   * and stays available on archived applications.
+   */
+  async getReadinessForKey(key: AuthenticatedApiKey, applicationId: string): Promise<ReadinessReport> {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
     const { report } = await this.buildReport(applicationId);
     return report;
   }
@@ -80,6 +93,14 @@ export class DeploymentService {
 
   async listForApplication(userId: string, applicationId: string) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
+    return this.listDeploymentsForApplication(applicationId);
+  }
+
+  /**
+   * The one deployment-listing core shared by the JWT route and the
+   * genapi key route: newest first, capped at 50, never padded.
+   */
+  private listDeploymentsForApplication(applicationId: string) {
     return this.prisma.deployment.findMany({
       where: { applicationId },
       orderBy: { createdAt: 'desc' },
@@ -87,8 +108,27 @@ export class DeploymentService {
     });
   }
 
+  /**
+   * Key-authenticated deployment listing with parity against the JWT
+   * route. Reading needs only read access, like the GitHub deployment
+   * listing, and there is no audit row for reads.
+   */
+  async listForKey(key: AuthenticatedApiKey, applicationId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    return this.listDeploymentsForApplication(applicationId);
+  }
+
   async findOne(userId: string, applicationId: string, deploymentId: string) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
+    return this.findDeploymentInApplication(applicationId, deploymentId);
+  }
+
+  /**
+   * The one deployment-inspect core shared by both surfaces: the
+   * deployment must belong to the named application, and foreign,
+   * cross-application, and unknown ids all answer one uniform 404.
+   */
+  private async findDeploymentInApplication(applicationId: string, deploymentId: string) {
     const deployment = await this.prisma.deployment.findFirst({
       where: { id: deploymentId, applicationId },
     });
@@ -96,6 +136,15 @@ export class DeploymentService {
       throw new NotFoundException('Deployment not found.');
     }
     return deployment;
+  }
+
+  /**
+   * Key-authenticated deployment inspect with the same uniform 404 as
+   * the JWT route, so the two surfaces can never drift apart.
+   */
+  async getForKey(key: AuthenticatedApiKey, applicationId: string, deploymentId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    return this.findDeploymentInApplication(applicationId, deploymentId);
   }
 
   private async buildReport(
