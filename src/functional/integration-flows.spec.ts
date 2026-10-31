@@ -546,8 +546,7 @@ suite('GENESIS integration and webhook flows (real app, real database, real rece
     const dispatched = await dispatch(hans.tokens.accessToken, 'deployment.recorded', { attempt: 'exhaustion' });
     expect(dispatched.status).toBe(201);
     const delivery = (dispatched.body as {
-      deliveries: Array<{ deliveryId: string; status: string; attempts: number; lastError: string }>;)
-      ).deliveries[0];
+      deliveries: Array<{ deliveryId: string; status: string; attempts: number; lastError: string }>).deliveries[0];
     expect(delivery.status).toBe('PENDING');
     expect(delivery.attempts).toBe(1);
     expect(delivery.lastError).toContain('HTTP 500');
@@ -583,7 +582,7 @@ suite('GENESIS integration and webhook flows (real app, real database, real rece
     respondWithStatus = 500;
     const dispatched = await dispatch(hans.tokens.accessToken, 'deployment.recorded', { attempt: 'recovery' });
     const delivery = (dispatched.body as {
-      deliveries: Array<{ deliveryId: string; status: string }>; }).deliveries[0];
+      deliveries: Array<{ deliveryId: string; status: string }>).deliveries[0];
     expect(delivery.status).toBe('PENDING');
     respondWithStatus = 200;
 
@@ -601,7 +600,7 @@ suite('GENESIS integration and webhook flows (real app, real database, real rece
     respondWithStatus = 500;
     const dispatched = await dispatch(hans.tokens.accessToken, 'deployment.recorded', { attempt: 'retry-race' });
     const delivery = (dispatched.body as {
-      deliveries: Array<{ deliveryId: string; status: string }>; }).deliveries[0];
+      deliveries: Array<{ deliveryId: string; status: string }>).deliveries[0];
     expect(delivery.status).toBe('PENDING');
     respondWithStatus = 200;
 
@@ -628,7 +627,8 @@ suite('GENESIS integration and webhook flows (real app, real database, real rece
     expect(dispatched.status).toBe(201);
     const dispatchBody = dispatched.body as {
       matchedEndpoints: number;
-      deliveries: Array<{ deliveryId: string; endpointId: string; status: string }>;};
+      deliveries: Array<{ deliveryId: string; endpointId: string; status: string }>;
+    };
     expect(dispatchBody.matchedEndpoints).toBe(2);
     expect(dispatchBody.deliveries.every((entry) => entry.status === 'DELIVERED')).toBe(true);
     const secondDelivery = dispatchBody.deliveries.find((entry) => entry.endpointId === secondId);
