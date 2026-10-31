@@ -12,6 +12,7 @@ import { WriteFileDto } from '../files/dto/write-file.dto';
 import { VerificationService } from '../verification/verification.service';
 import { ConversationService } from '../conversations/conversation.service';
 import { CreateMessageDto } from '../conversations/dto/create-message.dto';
+import { CreateConversationDto } from '../conversations/dto/create-conversation.dto';
 import { ReferencesService } from '../references/references.service';
 import { JobQueueService } from '../execution/job-queue.service';
 import { WorkGraphService } from '../work-graphs/work-graph.service';
@@ -292,6 +293,26 @@ export class GenapiController {
     @Param('applicationId') applicationId: string,
   ) {
     return this.conversations.listForKey(request.apiKey!, applicationId);
+  }
+
+  /**
+   * Key-authenticated conversation create. Grounded in the market
+   * leaders: a GitHub token with write permission creates an issue
+   * under a specific repository with only the title required, and
+   * the OpenAI thread create builds an empty conversation object
+   * straight from an API key. WRITE_APPLICATIONS grants the create;
+   * the writable tenant bound refuses foreign, missing, and archived
+   * applications with one uniform 404; and the response mirrors the
+   * JWT create exactly.
+   */
+  @Post('applications/:applicationId/conversations')
+  @RequireScopes('WRITE_APPLICATIONS')
+  createConversation(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Body() dto: CreateConversationDto,
+  ) {
+    return this.conversations.createForKey(request.apiKey!, applicationId, dto);
   }
 
   /**
