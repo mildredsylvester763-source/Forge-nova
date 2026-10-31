@@ -38,6 +38,7 @@ suite('GENESIS genapi message write flows (real app, real database)', () => {
   let iris: UserContext;
   let organizationId: string;
   let foreignOrganizationId: string;
+  let mainProjectId: string;
   let applicationAId: string;
   let applicationBId: string;
   let applicationCId: string;
@@ -216,12 +217,12 @@ suite('GENESIS genapi message write flows (real app, real database)', () => {
     expect(irisWorkspaces.status).toBe(200);
     const foreignWorkspaceId = (irisWorkspaces.body as unknown as Array<{ id: string }>)[0].id;
 
-    const projectAId = await createProject(hank.tokens.accessToken, workspaceAId, 'Message Project ' + runId);
+    mainProjectId = await createProject(hank.tokens.accessToken, workspaceAId, 'Message Project ' + runId);
     const foreignProjectId = await createProject(iris.tokens.accessToken, foreignWorkspaceId, 'Foreign Message Project ' + runId);
 
-    applicationAId = await createApplication(hank.tokens.accessToken, projectAId, 'Message App A ' + runId);
-    applicationBId = await createApplication(hank.tokens.accessToken, projectAId, 'Message App B ' + runId);
-    applicationCId = await createApplication(hank.tokens.accessToken, projectAId, 'Message App C ' + runId);
+    applicationAId = await createApplication(hank.tokens.accessToken, mainProjectId, 'Message App A ' + runId);
+    applicationBId = await createApplication(hank.tokens.accessToken, mainProjectId, 'Message App B ' + runId);
+    applicationCId = await createApplication(hank.tokens.accessToken, mainProjectId, 'Message App C ' + runId);
     foreignApplicationId = await createApplication(iris.tokens.accessToken, foreignProjectId, 'Foreign Message App ' + runId);
 
     mainConversationId = await createConversation(hank.tokens.accessToken, applicationAId, 'Main Conversation ' + runId);
@@ -281,7 +282,7 @@ suite('GENESIS genapi message write flows (real app, real database)', () => {
     expect(body.content).toBe('Hello from the acting key');
     expect(typeof body.createdAt).toBe('string');
     expect(Object.keys(keyed.body).sort()).toEqual(
-      ['conversationId', 'content', 'createdAt', 'id', 'role'],
+      ['content', 'conversationId', 'createdAt', 'id', 'role'],
     );
     expect(await messageCount(mainConversationId)).toBe(before + 1);
   });
@@ -398,11 +399,25 @@ suite('GENESIS genapi message write flows (real app, real database)', () => {
       (unknownApplication.body as { message: string }).message,
     );
 
+    // The key organization governs the application tenant bound, so a
+    // foreign key is refused at the application guard even though the
+    // application and conversation are real.
+    const foreignKey = await api(
+      'POST',
+      '/genapi/applications/' + applicationAId + '/conversations/' + mainConversationId + '/messages',
+      { content: 'Foreign key attempt ' + runId },
+      irisWriter.key,
+    );
+    expect(foreignKey.status).toBe(404);
+    applicationMessages.add(
+      (foreignKey.body as { message: string }).message,
+    );
+
     const foreignConversation = await api(
       'POST',
       '/genapi/applications/' + applicationAId + '/conversations/' + foreignConversationId + '/messages',
       { content: 'Foreign conversation attempt ' + runId },
-      irisWriter.key,
+      writerKey.key,
     );
     expect(foreignConversation.status).toBe(404);
     conversationMessages.add(
@@ -525,13 +540,18 @@ suite('GENESIS genapi message write flows (real app, real database)', () => {
       ),
       api(
         'POST',
-        '/applications/' + applicationCId + '/archive',
+        '/projects/' + mainProjectId + '/applications/' + applicationCId + '/archive',
         {},
         hank.tokens.accessToken,
       ),
     ]);
     expect(raced[1].status).toBe(201);
     expect([201, 404]).toContain(raced[0].status);
+    if (raced[0].status === 404) {
+      expect((raced[0].body as { message: string }).message).toBe(
+        'Application not found.',
+      );
+    }
 
     const application = await prisma.application.findUnique({
       where: { id: applicationCId },
