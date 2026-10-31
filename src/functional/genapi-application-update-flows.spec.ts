@@ -465,7 +465,14 @@ suite('GENESIS genapi application update flows (real app, real database)', () =>
       ),
     ]);
     expect(raced.map((response) => response.status).sort()).toEqual([201, 201]);
-    expect(raced[0].body).toEqual(raced[1].body);
+    // Each update bumps the honest row timestamp, so the bodies match
+    // on every field except updatedAt.
+    const stripTimestamp = (body: Record<string, unknown>) => {
+      const clone = { ...body };
+      delete clone.updatedAt;
+      return clone;
+    };
+    expect(stripTimestamp(raced[0].body)).toEqual(stripTimestamp(raced[1].body));
     expect(await updateRows(appAId)).toBe(before + 2);
 
     const stored = await prisma.application.findUnique({
