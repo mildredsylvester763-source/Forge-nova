@@ -1,5 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, VerificationKind } from '@prisma/client';
+import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
+import {
+  WriteActor,
+  actorAttribution,
+  actorAuditMetadata,
+  actorAuditOrganization,
+  keyActorFromApiKey,
+} from '../api-keys/engine/api-key-policy';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { WebhookService } from '../integrations/webhook.service';
@@ -41,7 +49,30 @@ export class VerificationService {
       throw new NotFoundException('Application not found.');
     }
     await this.access.requireProjectRole(userId, application.projectId, this.access.writeRoles());
+    return this.runKindsForActor({ kind: 'user', userId }, applicationId, kinds, jobId);
+  }
 
+  /**
+   * Key-authenticated verification run. The key is the authorization;
+   * the tenant bound refuses foreign, missing, and archived applications
+   * with the same uniform 404.
+   */
+  async runForApplicationForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    kinds?: VerifiableKind[],
+  ) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    return this.runKindsForActor(keyActorFromApiKey(key), applicationId, kinds, undefined);
+  }
+
+  private async runKindsForActor(
+    actor: WriteActor,
+    applicationId: string,
+    kinds: VerifiableKind[] | undefined,
+    jobId: string | undefined,
+  ) {
+    const attributedUserId = actorAttribution(actor);
     const resolvedKinds = kinds && kinds.length > 0 ? kinds : DEFAULT_KINDS;
     const files = await this.prisma.applicationFile.findMany({
       where: { applicationId, isDeleted: false },
@@ -52,7 +83,7 @@ export class VerificationService {
     const runs = [];
     for (const kind of resolvedKinds) {
       const execution = this.executeKind(kind, files);
-      const run = await this.persistRun(applicationId, userId, jobId, kind, execution, files.length);
+      const run = await this.persistRun(applicationId, actor, jobId, kind, execution, files.length);
       runs.push(run);
     }
     await this.events.emitForApplication(applicationId, 'verification.completed', {
@@ -152,12 +183,13 @@ export class VerificationService {
 
   private async persistRun(
     applicationId: string,
-    userId: string,
+    actor: WriteActor,
     jobId: string | undefined,
     kind: VerifiableKind,
     execution: KindExecution,
     totalFiles: number,
   ) {
+    const attributedUserId = actorAttribution(actor);
     const verdict = verdictFromFindings(kind, execution.findings, execution.analyzedCount);
     const storedFindings = execution.findings.slice(0, MAX_STORED_FINDINGS);
     const omittedCount = execution.findings.length - storedFindings.length;
@@ -177,7 +209,7 @@ export class VerificationService {
         summary: verdict.summary,
         findings: { counts: verdict.counts, items: storedFindings } as unknown as Prisma.InputJsonValue,
         evidence: evidence as unknown as Prisma.InputJsonValue,
-        triggeredBy: userId,
+        triggeredBy: attributedUserId,
         startedAt,
         completedAt: new Date(),
       },
@@ -185,18 +217,19 @@ export class VerificationService {
 
     await this.prisma.auditEvent.create({
       data: {
-        actorUserId: userId,
+        actorUserId: attributedUserId,
+        organizationId: actorAuditOrganization(actor),
         action: 'application.verification.run',
         resourceType: 'verification',
         resourceId: run.id,
         outcome: 'SUCCESS',
-        metadata: {
+        metadata: actorAuditMetadata(actor, {
           applicationId,
           kind,
           status: verdict.status,
           errors: verdict.counts.ERROR,
           warnings: verdict.counts.WARNING,
-        },
+        }),
       },
     });
 
