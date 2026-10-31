@@ -173,7 +173,7 @@ export class WebhookService {
           endpointId: endpoint.id,
           organizationId,
           eventName: dto.eventName,
-          payload: dto.payload ?? {},
+          payload: (dto.payload ?? {}) as Prisma.InputJsonValue,
           status: 'PENDING',
           attempts: 0,
         },
