@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -167,7 +167,24 @@ export class GenapiController {
     return this.graphs.validateForKey(request.apiKey!, applicationId, graphId);
   }
 
-  @Get('applications/:applicationId/jobs/:jobId')
+  /**
+   * Key-authenticated job listing. The shape and the newest-first order
+   * mirror the JWT listing route exactly, so the two surfaces can never
+   * drift apart. Grounded in the GitHub workflow-run listing: reading
+   * needs only read access and unknown status filters are refused by
+   * name. There is deliberately no audit row for reads.
+   */
+  @Get('applications/:applicationId/jobs')
+  @RequireScopes('READ_APPLICATIONS')
+  listJobs(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Query('status') status?: string,
+  ) {
+    return this.jobs.listForKey(request.apiKey!, applicationId, status);
+  }
+
+    @Get('applications/:applicationId/jobs/:jobId')
   @RequireScopes('READ_APPLICATIONS')
   inspectJob(
     @Req() request: KeyedRequest,
