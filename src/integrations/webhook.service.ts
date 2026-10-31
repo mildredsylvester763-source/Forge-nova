@@ -169,17 +169,15 @@ export class WebhookService {
 
     const results = [];
     for (const endpoint of matching) {
-      const delivery = await this.prisma.webhookDelivery.create({
-        data: {
-          endpointId: endpoint.id,
-          organizationId,
-          eventName: dto.eventName,
-          payload: (dto.payload ?? {}) as Prisma.InputJsonValue,
-          status: 'PENDING',
-          attempts: 0,
-        },
-        select: DELIVERY_SELECT,
-      });
+      const delivery = await this.createDeliveryForEndpoint(
+        endpoint.id,
+        organizationId,
+        dto.eventName,
+        (dto.payload ?? {}) as Prisma.InputJsonValue,
+      );
+      if (!delivery) {
+        continue;
+      }
       const outcome = await this.attemptDelivery(delivery.id);
       results.push(outcome ?? {
         deliveryId: delivery.id,
@@ -298,17 +296,15 @@ export class WebhookService {
         matchesSubscriptions(endpoint.eventSubscriptions, input.eventName),
       );
       for (const endpoint of matching) {
-        const delivery = await this.prisma.webhookDelivery.create({
-          data: {
-            endpointId: endpoint.id,
-            organizationId: input.organizationId,
-            eventName: input.eventName,
-            payload: validated.value as Prisma.InputJsonValue,
-            status: 'PENDING',
-            attempts: 0,
-          },
-          select: DELIVERY_SELECT,
-        });
+        const delivery = await this.createDeliveryForEndpoint(
+          endpoint.id,
+          input.organizationId,
+          input.eventName,
+          validated.value as Prisma.InputJsonValue,
+        );
+        if (!delivery) {
+          continue;
+        }
         await this.attemptDelivery(delivery.id);
       }
       return { emitted: true, matchedEndpoints: matching.length };
@@ -362,6 +358,42 @@ export class WebhookService {
       });
     } catch {
       return { emitted: false, matchedEndpoints: 0, reason: 'system-event-emission-failed' };
+    }
+  }
+
+  /**
+   * Creates one delivery row for a matching endpoint. An endpoint that
+   * was deleted between the dispatch snapshot and this insert answers
+   * null - deleting an endpoint immediately stops its deliveries, the
+   * same law GitHub and Stripe follow - instead of surfacing a
+   * foreign-key 500 to the caller.
+   */
+  private async createDeliveryForEndpoint(
+    endpointId: string,
+    organizationId: string,
+    eventName: string,
+    payload: Prisma.InputJsonValue,
+  ) {
+    try {
+      return await this.prisma.webhookDelivery.create({
+        data: {
+          endpointId,
+          organizationId,
+          eventName,
+          payload,
+          status: 'PENDING',
+          attempts: 0,
+        },
+        select: DELIVERY_SELECT,
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        return null;
+      }
+      throw error;
     }
   }
 
