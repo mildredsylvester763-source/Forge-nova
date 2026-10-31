@@ -9,7 +9,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { ApiKeyScopeName, keyLooksLikeApiKey } from './engine/api-key-policy';
+import { ApiKeyScopeName, hasGrantedScope, keyLooksLikeApiKey } from './engine/api-key-policy';
 import { ApiKeyService } from './api-key.service';
 
 export const API_KEY_SCOPES_KEY = 'genapi:required-scopes';
@@ -23,6 +23,7 @@ export interface AuthenticatedApiKey {
   organizationId: string;
   name: string;
   scopes: ApiKeyScopeName[];
+  createdBy: string | null;
 }
 
 const RATE_WINDOW_MS = 60_000;
@@ -73,9 +74,8 @@ export class ApiKeyGuard implements CanActivate {
     }
 
     if (required && required.length > 0) {
-      const granted = new Set<string>(key.scopes);
       for (const scope of required) {
-        if (!granted.has(scope)) {
+        if (!hasGrantedScope(key.scopes, scope)) {
           throw new ForbiddenException('The API key does not grant the required scope.');
         }
       }
