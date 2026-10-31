@@ -56,20 +56,17 @@ jobs:
         run: |
           set -o pipefail
           npm test 2>&1 | tee jest-output.log
-      - name: Surface failing test names as annotation
+      - name: Surface the full failure report as one annotation
         if: failure()
         run: |
-          names=$(grep '✕' jest-output.log | sed 's/\r//' | head -40 | tr '\n' ' ')
-          if [ -n "$names" ]; then echo "::error::FAILING-TESTS $names"; fi
-      - name: Surface failure details as annotations
-        if: failure()
-        run: |
+          suites=$(grep -E '^FAIL ' jest-output.log | tr '\n' '¶')
+          names=$(grep '✕' jest-output.log | sed 's/\r//' | head -40 | tr '\n' '¶')
           sums=$(grep -E '^(Tests|Test Suites):' jest-output.log | tr '\n' ' ')
-          if [ -n "$sums" ]; then echo "::error::SUMMARY $sums"; fi
-          block=$(awk '/●.*›/{p=1} p' jest-output.log | sed 's/\r//' | grep -v '^[[:space:]]*$' | head -90 | tr '\n' '¶')
-          if [ -n "$block" ]; then
-            trimmed=$(printf '%s' "$block" | head -c 3800)
-            echo "::error::DETAILS $trimmed"
+          block=$(awk '/●.*›/{p=1} p' jest-output.log | sed 's/\r//' | grep -v '^[[:space:]]*$' | head -220 | tr '\n' '¶')
+          report="FAILING-SUITES $suites¶FAILING-TESTS $names¶SUMMARY $sums¶DETAILS $block"
+          if [ -n "$suites$names$sums$block" ]; then
+            trimmed=$(printf '%s' "$report" | head -c 12000)
+            echo "::error::CI-FAILURE-REPORT $trimmed"
           fi
       - name: Build backend
         run: npm run build
