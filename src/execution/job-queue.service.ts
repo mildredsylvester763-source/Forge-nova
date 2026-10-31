@@ -524,7 +524,66 @@ export class JobQueueService {
     return job;
   }
 
-  private stableStringify(value: unknown): string {
+  /**
+   * The single status-filter law shared by the JWT listing route and
+   * the genapi key listing route: an absent or empty filter means no
+   * filter, any other value must be a known job status, and anything
+   * else is a named 400 - never a silently ignored filter. GitHub
+   * rejects unknown status values the same way on its workflow-run
+   * listing.
+   */
+  static resolveStatusFilter(raw: string | undefined): JobStatus | undefined {
+    if (raw === undefined || raw === '') return undefined;
+    const known: readonly string[] = [
+      JobStatus.QUEUED,
+      JobStatus.RESERVED,
+      JobStatus.RUNNING,
+      JobStatus.WAITING_FOR_APPROVAL,
+      JobStatus.SUCCEEDED,
+      JobStatus.FAILED,
+      JobStatus.CANCELLED,
+      JobStatus.PAUSED,
+    ];
+    if (!known.includes(raw)) {
+      throw new BadRequestException('Job status filter must be one of the known job statuses.');
+    }
+    return raw as JobStatus;
+  }
+
+  /**
+   * The one listing core shared by the JWT route and the genapi key
+   * route: newest first, exactly the inspect shape, optionally
+   * narrowed by a validated status filter. Deliberately unpaginated
+   * like every other GENESIS list - no fake cursors.
+   */
+  private listJobsForApplication(applicationId: string, status: JobStatus | undefined) {
+    const where: Prisma.WorkJobWhereInput = status === undefined
+      ? { applicationId }
+      : { applicationId, status };
+    return this.prisma.workJob.findMany({
+      where,
+      select: this.jobViewSelect,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async listForUser(userId: string, applicationId: string, rawStatus: string | undefined) {
+    await this.access.requireApplicationRole(userId, applicationId, this.access.allRoles());
+    return this.listJobsForApplication(applicationId, JobQueueService.resolveStatusFilter(rawStatus));
+  }
+
+  /**
+   * Key-authenticated job listing. Reads stay possible on archived
+   * applications; foreign and missing applications answer with the
+   * same uniform 404 as the rest of the read surface, and there is
+   * deliberately no audit row for reads.
+   */
+  async listForKey(key: AuthenticatedApiKey, applicationId: string, rawStatus: string | undefined) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    return this.listJobsForApplication(applicationId, JobQueueService.resolveStatusFilter(rawStatus));
+  }
+
+    private stableStringify(value: unknown): string {
     if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
     if (Array.isArray(value)) {
       return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
