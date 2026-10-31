@@ -74,6 +74,28 @@ export class ApplicationService {
 
   async update(userId: string, applicationId: string, dto: UpdateApplicationDto) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.updateAsActor({ kind: 'user', userId }, applicationId, dto);
+  }
+
+  /**
+   * Key-authenticated update. The writable tenant bound is the guard:
+   * foreign, missing, and archived applications all answer the same
+   * uniform 404, so an update can neither probe other tenants nor
+   * touch an archived application. Grounded in the market leaders:
+   * GitHub repository updates and Vercel project updates are partial
+   * metadata writes by id behind write permission, never read.
+   */
+  async updateForKey(key: AuthenticatedApiKey, applicationId: string, dto: UpdateApplicationDto) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    return this.updateAsActor(keyActorFromApiKey(key), applicationId, dto);
+  }
+
+  private async updateAsActor(
+    actor: WriteActor,
+    applicationId: string,
+    dto: UpdateApplicationDto,
+  ) {
+    const attributedUserId = actorAttribution(actor);
     const application = await this.prisma.application.update({
       where: { id: applicationId },
       data: {
@@ -86,12 +108,13 @@ export class ApplicationService {
     });
     await this.prisma.auditEvent.create({
       data: {
-        actorUserId: userId,
+        actorUserId: attributedUserId,
+        organizationId: actorAuditOrganization(actor),
         action: 'application.update',
         resourceType: 'application',
         resourceId: applicationId,
         outcome: 'SUCCESS',
-        metadata: { applicationId },
+        metadata: actorAuditMetadata(actor, { applicationId }),
       },
     });
     await this.events.emitForApplication(applicationId, 'application.updated', { applicationId });
