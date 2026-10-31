@@ -211,5 +211,53 @@ export class ConversationService {
         createdAt: true,
       },
     });
+  /**
+   * Key-authenticated user message. Grounded in the GitHub issue
+   * comment write: a token with write permission may post comments and
+   * the post is attributed to the token identity. The application must
+   * belong to the key organization through the writable bound, so an
+   * archived application refuses the write; the conversation must belong
+   * to that application, so foreign, cross-application, and unknown
+   * conversations all answer the same uniform 404 as the keyed read.
+   * The secret scan runs before the archived check exactly like the
+   * JWT route. Keyed messages carry their attribution metadata so
+   * listings can show which key posted them; the response mirrors the
+   * JWT response exactly, with no metadata field.
+   */
+  async addUserMessageForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    conversationId: string,
+    dto: CreateMessageDto,
+  ) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, applicationId },
+      select: { archivedAt: true },
+    });
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found.');
+    }
+    this.secrets.assertNoSecrets(dto.content);
+    if (conversation.archivedAt) {
+      throw new ConflictException('This conversation is archived or unavailable.');
+    }
+    return this.prisma.message.create({
+      data: {
+        conversationId,
+        role: 'USER',
+        content: dto.content.trim(),
+        metadata: { via: 'genapi', apiKeyId: key.id, apiKeyName: key.name },
+      },
+      select: {
+        id: true,
+        conversationId: true,
+        role: true,
+        content: true,
+        createdAt: true,
+      },
+    });
+  }
+
   }
 }
