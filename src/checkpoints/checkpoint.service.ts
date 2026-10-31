@@ -7,6 +7,14 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
+import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
+import {
+  WriteActor,
+  actorAttribution,
+  actorAuditMetadata,
+  actorAuditOrganization,
+  keyActorFromApiKey,
+} from '../api-keys/engine/api-key-policy';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { normalizeApplicationPath } from '../common/source/path-safety';
@@ -50,12 +58,26 @@ export class CheckpointService {
 
   async create(userId: string, applicationId: string, label: string) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.createAsActor({ kind: 'user', userId }, applicationId, label);
+  }
+
+  /**
+   * Key-authenticated checkpoint create. The key is the authorization;
+   * the transaction-level tenant bound refuses foreign, missing, and
+   * archived applications with the same uniform 404.
+   */
+  async createForKey(key: AuthenticatedApiKey, applicationId: string, label: string) {
+    return this.createAsActor(keyActorFromApiKey(key), applicationId, label);
+  }
+
+  private async createAsActor(actor: WriteActor, applicationId: string, label: string) {
+    const attributedUserId = actorAttribution(actor);
     const trimmedLabel = label.trim();
     if (!trimmedLabel) throw new BadRequestException('Checkpoint label cannot be blank.');
 
     try {
       const checkpoint = await this.prisma.$transaction(async (tx) => {
-        const application = await this.requireWritableApplication(tx, userId, applicationId);
+        const application = await this.requireWritableApplication(tx, actor, applicationId);
         const files = await tx.applicationFile.findMany({
           where: { applicationId },
           select: {
@@ -95,18 +117,19 @@ export class CheckpointService {
             label: trimmedLabel,
             sourceRef: null,
             manifest: manifest as Prisma.InputJsonValue,
-            createdBy: userId,
+            createdBy: attributedUserId,
           },
           select: { id: true, applicationId: true, label: true, createdAt: true },
         });
         await tx.auditEvent.create({
           data: {
-            actorUserId: userId,
+            actorUserId: attributedUserId,
+            organizationId: actorAuditOrganization(actor),
             action: 'application.checkpoint.create',
             resourceType: 'checkpoint',
             resourceId: checkpoint.id,
             outcome: 'SUCCESS',
-            metadata: { applicationId, label: trimmedLabel, fileCount: files.length },
+            metadata: actorAuditMetadata(actor, { applicationId, label: trimmedLabel, fileCount: files.length }),
           },
         });
         return { ...checkpoint, fileCount: files.length };
@@ -148,9 +171,23 @@ export class CheckpointService {
 
   async restore(userId: string, applicationId: string, checkpointId: string) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.restoreAsActor({ kind: 'user', userId }, applicationId, checkpointId);
+  }
+
+  /**
+   * Key-authenticated checkpoint restore with the same idempotency and
+   * race semantics as the JWT surface: a double-tap replay changes
+   * nothing, and the loser of a restore-vs-write race rolls back cleanly.
+   */
+  async restoreForKey(key: AuthenticatedApiKey, applicationId: string, checkpointId: string) {
+    return this.restoreAsActor(keyActorFromApiKey(key), applicationId, checkpointId);
+  }
+
+  private async restoreAsActor(actor: WriteActor, applicationId: string, checkpointId: string) {
+    const attributedUserId = actorAttribution(actor);
     try {
       const result = await this.prisma.$transaction(async (tx) => {
-        const application = await this.requireWritableApplication(tx, userId, applicationId);
+        const application = await this.requireWritableApplication(tx, actor, applicationId);
         const checkpoint = await tx.checkpoint.findFirst({
           where: { id: checkpointId, applicationId },
           select: { id: true, label: true, manifest: true },
@@ -243,7 +280,7 @@ export class CheckpointService {
               content: revision.content,
               contentHash: revision.contentHash,
               isDeleted: snapshotFile.isDeleted,
-              createdBy: userId,
+              createdBy: attributedUserId,
             },
           });
           changedFiles += 1;
@@ -266,7 +303,7 @@ export class CheckpointService {
               content: current.content,
               contentHash: current.contentHash,
               isDeleted: true,
-              createdBy: userId,
+              createdBy: attributedUserId,
             },
           });
           changedFiles += 1;
@@ -283,12 +320,13 @@ export class CheckpointService {
         });
         await tx.auditEvent.create({
           data: {
-            actorUserId: userId,
+            actorUserId: attributedUserId,
+            organizationId: actorAuditOrganization(actor),
             action: 'application.checkpoint.restore',
             resourceType: 'checkpoint',
             resourceId: checkpoint.id,
             outcome: 'SUCCESS',
-            metadata: { applicationId, label: checkpoint.label, changedFiles },
+            metadata: actorAuditMetadata(actor, { applicationId, label: checkpoint.label, changedFiles }),
           },
         });
         return {
@@ -315,7 +353,7 @@ export class CheckpointService {
 
   private async requireWritableApplication(
     tx: Prisma.TransactionClient,
-    userId: string,
+    actor: WriteActor,
     applicationId: string,
   ) {
     const application = await tx.application.findFirst({
@@ -333,11 +371,18 @@ export class CheckpointService {
         project: { select: { workspace: { select: { organizationId: true } } } },
       },
     });
+    if (actor.kind === 'apiKey') {
+      // The key is the authorization: the tenant bound is the organization.
+      // Foreign, missing, and archived applications are all one uniform 404.
+      if (!application || application.project.workspace.organizationId !== actor.organizationId) {
+        throw new NotFoundException('Application not found.');
+      }
+      return application;
+    }
     if (!application) throw new ForbiddenException('The application is not writable.');
-
     const membership = await tx.membership.findFirst({
       where: {
-        userId,
+        userId: actor.userId,
         organizationId: application.project.workspace.organizationId,
         role: { in: this.access.writeRoles() },
       },
