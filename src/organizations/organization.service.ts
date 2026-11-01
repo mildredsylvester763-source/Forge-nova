@@ -99,6 +99,16 @@ export class OrganizationService {
 
   async listMembers(userId: string, organizationId: string) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.allRoles());
+    return this.listMembersForOrganization(organizationId);
+  }
+
+  /**
+   * Shared member directory core so the JWT surface and the
+   * key-authenticated surface can never drift apart. Oldest first,
+   * the same creation order the directory grew in, so the two
+   * listings answer byte-identical rows.
+   */
+  private listMembersForOrganization(organizationId: string) {
     return this.prisma.membership.findMany({
       where: { organizationId },
       select: {
@@ -109,6 +119,21 @@ export class OrganizationService {
       },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  /**
+   * Key-authenticated organization member directory. Grounded in
+   * the GitHub org members listing, where reading who belongs to
+   * an organization needs only the Members organization read
+   * permission: keys are minted only by organization admins, so a
+   * READ_ORGANIZATION key is an admin-delegated read exactly like
+   * the audit trail delegation, and the key IS the tenant bound -
+   * there is no path parameter to probe, so the directory can
+   * only ever be the one of the key organization. Reads never
+   * write audit rows.
+   */
+  async listMembersForKey(key: AuthenticatedApiKey) {
+    return this.listMembersForOrganization(key.organizationId);
   }
 
   async addMember(userId: string, organizationId: string, dto: AddMemberDto) {
