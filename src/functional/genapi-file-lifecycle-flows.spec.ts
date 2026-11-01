@@ -329,7 +329,7 @@ suite('GENESIS genapi file lifecycle flows (real app, real database)', () => {
     expect(jwt.status).toBe(200);
     expect(keyed.body).toEqual(jwt.body);
 
-    const rows = keyed.body as Array<{ revision: number; isDeleted: boolean; createdBy: string }>;
+    const rows = keyed.body as unknown as Array<{ revision: number; isDeleted: boolean; createdBy: string }>;
     expect(rows.length).toBe(2);
     expect(rows[0].revision).toBe(2);
     expect(rows[1].revision).toBe(1);
@@ -427,7 +427,7 @@ suite('GENESIS genapi file lifecycle flows (real app, real database)', () => {
 
     const history = await revisionsKeyed(applicationAId, keyedFileId, readerKey.key);
     expect(history.status).toBe(200);
-    const rows = history.body as Array<{ revision: number; isDeleted: boolean }>;
+    const rows = history.body as unknown as Array<{ revision: number; isDeleted: boolean }>;
     expect(rows.length).toBe(2);
     expect(rows[0].revision).toBe(2);
     expect(rows[0].isDeleted).toBe(true);
