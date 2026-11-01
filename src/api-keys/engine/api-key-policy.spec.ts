@@ -79,6 +79,7 @@ describe('api key policy engine', () => {
     expect(normalizeScopes(['WRITE_APPLICATIONS'])).toEqual({ scopes: ['WRITE_APPLICATIONS'] });
     expect(normalizeScopes(['WRITE_ORGANIZATION', 'WRITE_ORGANIZATION']))
       .toEqual({ scopes: ['WRITE_ORGANIZATION'] });
+    expect(normalizeScopes(['WRITE_PROJECTS'])).toEqual({ scopes: ['WRITE_PROJECTS'] });
   });
 
   it('pins the complete honest scope set', () => {
@@ -88,6 +89,7 @@ describe('api key policy engine', () => {
       'READ_APPLICATIONS',
       'WRITE_APPLICATIONS',
       'WRITE_ORGANIZATION',
+      'WRITE_PROJECTS',
     ]);
   });
 
