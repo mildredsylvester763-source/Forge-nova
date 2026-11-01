@@ -414,8 +414,16 @@ suite('genapi key-authenticated AI generation flows (real app, real database)', 
       ),
     ]);
     expect(raced.map((response) => response.status).sort()).toEqual([201, 409]);
+    // Two honest refusals exist: the loser may read the committed winner
+    // through the pre-check and answer the different-payload 409, or it
+    // may lose the insert race and answer the already-exists 409. Both
+    // end the race exactly one way, so the SET of clean outcomes is the
+    // honest assertion, never one specific message.
     const refused = raced.find((response) => response.status === 409) as ApiResponse;
-    expect((refused.body as { message: string }).message).toBe('This idempotency key was already used for a different job payload.');
+    expect([
+      'This idempotency key was already used for a different job payload.',
+      'A job with this idempotency key already exists.',
+    ]).toContain((refused.body as { message: string }).message);
 
     expect(await jobsInApplication(applicationIdA)).toBe(rowsBefore + 1);
     const row = await prisma.workJob.findFirst({
