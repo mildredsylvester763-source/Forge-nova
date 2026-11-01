@@ -12,6 +12,7 @@ import {
   WorkRiskLevel,
 } from '@prisma/client';
 import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
+import { WriteActor, actorAttribution, keyActorFromApiKey } from '../api-keys/engine/api-key-policy';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { SecretScannerService } from '../security/secret-scanner.service';
@@ -97,13 +98,37 @@ export class WorkGraphService {
 
   async create(userId: string, applicationId: string, dto: CreateWorkGraphDto) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.createAsActor({ kind: 'user', userId }, applicationId, dto);
+  }
+
+  /**
+   * Key-authenticated work graph create. The OpenAI assistant create
+   * builds a configured object straight from a Bearer API key, so a
+   * keyed graph create seeds the same original user request node the
+   * JWT create seeds. The writable tenant bound refuses foreign,
+   * missing, and archived applications with one uniform 404 and the
+   * attribution lands on the key creator when that user still exists.
+   * There is deliberately no audit row because the JWT create writes
+   * none either.
+   */
+  async createForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    dto: CreateWorkGraphDto,
+  ) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    return this.createAsActor(keyActorFromApiKey(key), applicationId, dto);
+  }
+
+  private async createAsActor(actor: WriteActor, applicationId: string, dto: CreateWorkGraphDto) {
+    const attributedUserId = actorAttribution(actor);
     this.secrets.assertNoSecrets(dto.sourcePrompt);
     return this.prisma.workGraph.create({
       data: {
         applicationId,
         title: dto.title.trim(),
         sourcePrompt: dto.sourcePrompt.trim(),
-        createdBy: userId,
+        createdBy: attributedUserId,
         nodes: {
           create: {
             key: 'user-request',
@@ -163,11 +188,42 @@ export class WorkGraphService {
       graphId,
       this.access.writeRoles(),
     );
+    return this.addNodeToGraph({ id: graph.id, status: graph.status }, dto);
+  }
+
+  /**
+   * Key-authenticated work node create. The GitHub deployment
+   * status create lets a push token add child records to a parent
+   * resource behind a write permission, so a keyed node add lands on
+   * the graph the key tenant already owns. The writable tenant bound
+   * refuses foreign, missing, and archived applications with one
+   * uniform 404, the graph ownership check answers cross-application
+   * and unknown graph ids with the same uniform 404, and the honest
+   * 409s mirror the JWT route exactly. There is deliberately no audit
+   * row because the JWT addNode writes none either.
+   */
+  async addNodeForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    graphId: string,
+    dto: CreateWorkNodeDto,
+  ) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    const graph = await this.prisma.workGraph.findFirst({
+      where: { id: graphId, applicationId },
+      select: { id: true, status: true },
+    });
+    if (!graph) throw new NotFoundException('Work graph not found.');
+    return this.addNodeToGraph(graph, dto);
+  }
+
+  private async addNodeToGraph(graph: { id: string; status: WorkGraphStatus }, dto: CreateWorkNodeDto) {
     const editableStatuses: readonly WorkGraphStatus[] = [WorkGraphStatus.DRAFT, WorkGraphStatus.READY];
     if (!editableStatuses.includes(graph.status)) {
       throw new ConflictException('Nodes cannot be added after graph execution has started.');
     }
 
+    const graphId = graph.id;
     const inputJson = dto.input ?? {};
     const serializedInput = JSON.stringify(inputJson);
     this.secrets.assertNoSecrets(serializedInput);
