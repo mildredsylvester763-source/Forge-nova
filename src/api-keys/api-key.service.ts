@@ -4,6 +4,7 @@ import { ApiKeyScope } from '@prisma/client';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
+import { AuthenticatedApiKey } from './api-key.guard';
 import {
   ApiKeyRefusal,
   REFUSAL_MESSAGES,
@@ -103,11 +104,38 @@ export class ApiKeyService {
    */
   async list(userId: string, organizationId: string) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+    return this.listApiKeysForOrganization(organizationId);
+  }
+
+  /**
+   * Shared key inventory core so the JWT admin surface and the
+   * key-authenticated surface can never drift apart. Newest first,
+   * masked hints only: the hash and the plaintext never appear in
+   * any listing, exactly like the masked key inventories the market
+   * leaders keep.
+   */
+  private listApiKeysForOrganization(organizationId: string) {
     return this.prisma.apiKey.findMany({
       where: { organizationId },
       select: API_KEY_SELECT,
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /**
+   * Key-authenticated key inventory. Grounded in the GitHub org
+   * personal access token review surface, where organization owners
+   * inspect the member token inventory with metadata only, while
+   * Stripe keeps its key inventory dashboard-only: keys are minted
+   * only by organization admins, so a READ_ORGANIZATION key is an
+   * admin-delegated inventory read exactly like the audit trail and
+   * member directory delegations, and the key IS the tenant bound -
+   * there is no path parameter to probe, so the inventory can only
+   * ever be the one of the key organization. Reads never write
+   * audit rows.
+   */
+  async listForKey(key: AuthenticatedApiKey) {
+    return this.listApiKeysForOrganization(key.organizationId);
   }
 
   /**
