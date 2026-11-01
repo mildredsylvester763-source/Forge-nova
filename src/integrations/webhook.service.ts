@@ -253,6 +253,69 @@ export class WebhookService {
   }
 
   /**
+   * Ping, grounded in the GitHub org webhook ping (POST /orgs/{org}/
+   * hooks/{hook_id}/pings behind the Webhooks write permission): the
+   * ping is the market-standard confirmation that an endpoint is
+   * configured and reachable, sent when the operator asks for it.
+   * A ping is a health check, not a real event, so it goes to the
+   * named endpoint regardless of subscriptions and regardless of
+   * the active flag - an operator may want to verify a receiver
+   * before re-enabling it. Exactly one delivery row (eventName
+   * ping) with one synchronous signed attempt is created, the
+   * honest attempt outcome comes back in the same shape as the
+   * dispatch and retry results, and the recorded row stays
+   * retryable through the same backoff schedule as any other
+   * delivery. Unknown, foreign, and concurrently deleted endpoints
+   * all answer one uniform 404, and every landed ping writes
+   * exactly one audit row.
+   */
+  async pingEndpoint(userId: string, organizationId: string, endpointId: string) {
+    await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+
+    const endpoint = await this.prisma.webhookEndpoint.findFirst({
+      where: { id: endpointId, organizationId },
+    });
+    if (!endpoint) throw new NotFoundException('Webhook endpoint not found.');
+
+    const delivery = await this.createDeliveryForEndpoint(
+      endpoint.id,
+      organizationId,
+      'ping',
+      {
+        endpointId: endpoint.id,
+        url: endpoint.url,
+        eventSubscriptions: endpoint.eventSubscriptions,
+        active: endpoint.active,
+      } as unknown as Prisma.InputJsonValue,
+    );
+    if (!delivery) throw new NotFoundException('Webhook endpoint not found.');
+
+    const outcome = await this.attemptDelivery(delivery.id);
+    const result = outcome ?? {
+      deliveryId: delivery.id,
+      endpointId: endpoint.id,
+      status: delivery.status,
+      attempts: delivery.attempts,
+      lastStatusCode: null,
+      lastError: 'attempt already in progress',
+    };
+
+    await this.prisma.auditEvent.create({
+      data: {
+        actorUserId: userId,
+        organizationId,
+        action: 'webhook.endpoint.ping',
+        resourceType: 'webhook_delivery',
+        resourceId: delivery.id,
+        outcome: 'SUCCESS',
+        metadata: { endpointId: endpoint.id, status: result.status, attempts: result.attempts },
+      },
+    });
+
+    return result;
+  }
+
+  /**
    * Dispatches an event: every ACTIVE endpoint whose subscriptions
    * match the event gets one delivery row and one SYNCHRONOUS signed
    * attempt. No matching endpoints is an honest zero, not an error.
