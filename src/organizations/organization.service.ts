@@ -16,6 +16,20 @@ import { TransferOwnershipDto } from './dto/transfer-ownership.dto';
 import { canChangeMemberRole, canRemoveMember, MembershipPolicyRefusal } from './engine/membership-policy.engine';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 
+/**
+ * The organization profile select shared by the JWT organization
+ * listing rows and the key-authenticated organization profile, so
+ * both surfaces answer the same fields by construction and can
+ * never drift apart.
+ */
+const ORGANIZATION_PROFILE_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  createdAt: true,
+  _count: { select: { memberships: true, workspaces: true } },
+};
+
 const REFUSAL_MESSAGES: Record<MembershipPolicyRefusal, string> = {
   'membership.owner-assignment-requires-transfer':
     'Owner assignment requires the dedicated ownership-transfer workflow.',
@@ -36,18 +50,37 @@ export class OrganizationService {
     return this.prisma.organization.findMany({
       where: { memberships: { some: { userId } } },
       select: {
-        id: true,
-        name: true,
-        slug: true,
-        createdAt: true,
+        ...ORGANIZATION_PROFILE_SELECT,
         memberships: {
           where: { userId },
           select: { role: true },
         },
-        _count: { select: { memberships: true, workspaces: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  /**
+   * Key-authenticated organization profile. Grounded in the GitHub
+   * get-an-organization REST surface, where the organization profile
+   * read is a first-class endpoint and a fine-grained token with
+   * organization access reads the profile without any extra
+   * permissions: the profile fields and live counts come from the
+   * same shared profile select the JWT organization listing rows use,
+   * so the two surfaces can never drift apart. The key IS the tenant
+   * bound - there is no path parameter to probe, so the profile can
+   * only ever be the one of the key organization. Reads never write
+   * audit rows.
+   */
+  async getOrganizationProfileForKey(key: AuthenticatedApiKey) {
+    const profile = await this.prisma.organization.findUnique({
+      where: { id: key.organizationId },
+      select: ORGANIZATION_PROFILE_SELECT,
+    });
+    if (!profile) {
+      throw new NotFoundException('Organization not found.');
+    }
+    return profile;
   }
 
   async create(userId: string, dto: CreateOrganizationDto) {
