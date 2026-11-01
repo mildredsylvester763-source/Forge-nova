@@ -473,7 +473,7 @@ suite('GENESIS keyed integration connection flows (real app, real database, real
       hank.tokens.accessToken,
     );
     expect(jwtDelete.status).toBe(200);
-    expect(await prisma.integration.count({ where: { id: keyId })).toBe(0);
+    expect(await prisma.integration.count({ where: { id: keyId } })).toBe(0);
   });
 
   it('refuses wrong scopes and malformed bodies with zero side effects', async () => {
