@@ -23,6 +23,9 @@ import { CreateWorkNodeDto } from '../work-graphs/dto/create-work-node.dto';
 import { DeploymentService } from '../deployments/deployment.service';
 import { CreateDeploymentDto } from '../deployments/dto/create-deployment.dto';
 import { OrganizationService } from '../organizations/organization.service';
+import { AddMemberDto } from '../organizations/dto/add-member.dto';
+import { ChangeMemberRoleDto } from '../organizations/dto/change-member-role.dto';
+import { TransferOwnershipDto } from '../organizations/dto/transfer-ownership.dto';
 import { WebhookService } from '../integrations/webhook.service';
 import { CreateWebhookEndpointDto } from '../integrations/dto/create-webhook-endpoint.dto';
 import { DispatchEventDto } from '../integrations/dto/dispatch-event.dto';
@@ -155,6 +158,72 @@ export class GenapiController {
   @RequireScopes('READ_ORGANIZATION')
   listMembers(@Req() request: KeyedRequest) {
     return this.organizations.listMembersForKey(request.apiKey!);
+  }
+
+  /**
+   * Keyed member add. Grounded in the GitHub add-or-update organization
+   * membership surface, where managing membership runs behind the
+   * Members organization write permission and a token never grants
+   * more access than its owner: keys are minted only by organization
+   * admins, so a WRITE_ORGANIZATION key is an admin-delegated add
+   * bounded to the key organization, the response mirrors the JWT
+   * add exactly, and the landed add writes exactly one audit row
+   * stamped via genapi with the acting key.
+   */
+  @Post('members')
+  @RequireScopes('WRITE_ORGANIZATION')
+  addMember(@Req() request: KeyedRequest, @Body() dto: AddMemberDto) {
+    return this.organizations.addMemberForKey(request.apiKey!, dto);
+  }
+
+  /**
+   * Keyed member role change. Grounded in the GitHub membership
+   * update behind the Members organization write permission: the
+   * policy engine decides exactly as for the JWT route, OWNER is
+   * never assignable here, foreign and unknown membership ids
+   * answer one uniform 404, and the landed change writes exactly
+   * one audit row stamped via genapi with the acting key.
+   */
+  @Post('members/:membershipId/update')
+  @RequireScopes('WRITE_ORGANIZATION')
+  updateMemberRole(
+    @Req() request: KeyedRequest,
+    @Param('membershipId') membershipId: string,
+    @Body() dto: ChangeMemberRoleDto,
+  ) {
+    return this.organizations.changeMemberRoleForKey(request.apiKey!, membershipId, dto);
+  }
+
+  /**
+   * Keyed member removal. Grounded in the GitHub remove an
+   * organization member surface behind the Members organization write
+   * permission: the owner-protection policy decides exactly as for
+   * the JWT route, the guarded delete hands racing removals exactly
+   * one clean outcome, and the landed removal writes exactly one
+   * audit row stamped via genapi with the acting key.
+   */
+  @Post('members/:membershipId/remove')
+  @RequireScopes('WRITE_ORGANIZATION')
+  removeMember(
+    @Req() request: KeyedRequest,
+    @Param('membershipId') membershipId: string,
+  ) {
+    return this.organizations.removeMemberForKey(request.apiKey!, membershipId);
+  }
+
+  /**
+   * Keyed ownership transfer. Grounded in the GitHub organization
+   * role assignment law - ownership changes are owner-only actions,
+   * and a token never grants more access than its owner: the key
+   * acts as its creator, so the transfer only runs while the
+   * creator still holds OWNER in the key organization, with the
+   * same gates, messages, and audit shape as the JWT route through
+   * the one shared core.
+   */
+  @Post('ownership-transfer')
+  @RequireScopes('WRITE_ORGANIZATION')
+  transferOwnership(@Req() request: KeyedRequest, @Body() dto: TransferOwnershipDto) {
+    return this.organizations.transferOwnershipForKey(request.apiKey!, dto);
   }
 
   /**
