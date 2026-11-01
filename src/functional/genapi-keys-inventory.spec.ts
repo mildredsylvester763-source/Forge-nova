@@ -302,7 +302,19 @@ suite('GENESIS keyed key inventory flows (real app, real database)', () => {
     ]);
     expect(raced[0].status).toBe(200);
     expect(raced[1].status).toBe(200);
-    expect(stripLastUsedAt(raced[0].body)).toEqual(stripLastUsedAt(raced[1].body));
+    // The guard stamps lastUsedAt with a fire-and-forget update and that
+    // write also bumps updatedAt of the acting key row, so a double-tap
+    // equality compares the stable fields only: both volatile fields
+    // are pinned by the monotonic law instead.
+    const stripVolatile = (listing: unknown) => {
+      return (listing as Array<Record<string, unknown>>).map((row) => {
+        const copy = { ...row };
+        delete copy.lastUsedAt;
+        delete copy.updatedAt;
+        return copy;
+      });
+    };
+    expect(stripVolatile(raced[0].body)).toEqual(stripVolatile(raced[1].body));
 
     expect(await auditCount()).toBe(before);
   });
