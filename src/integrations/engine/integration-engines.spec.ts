@@ -212,7 +212,7 @@ describe('integration engines', () => {
       expect(validateCredentials(linearValidate, { apiKey: '   ' })).toEqual({ ok: false, reason: 'connector-empty-credential', field: 'apiKey' });
       const stripeValidate = CONNECTORS.find((c) => c.id === 'stripe')!;
       expect(validateCredentials(stripeValidate, { secretKey: 'sk_test_key' })).toEqual({ ok: true });
-      expect(validateCredentials(stripeValidate, { publishableKey: 'pk_test_key' })).toEqual({ ok: false, reason: 'connector-unknown-credential', field: 'publishableKey' });
+      expect(validateCredentials(stripeValidate, { secretKey: 'sk_test_key', publishableKey: 'pk_test_key' })).toEqual({ ok: false, reason: 'connector-unknown-credential', field: 'publishableKey' });
     });
 
     it('never echoes credential values back', () => {
