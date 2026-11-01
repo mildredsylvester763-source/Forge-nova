@@ -140,6 +140,25 @@ export class WebhooksController {
     return this.webhooks.pingEndpoint(request.user.sub, organizationId, endpointId);
   }
 
+  /**
+   * Signing-secret rotation. Grounded in the market-wide law that a
+   * leaked webhook secret must be replaceable without deleting the
+   * endpoint: GitHub rotates through the update config.secret and
+   * the industry pattern for reveal-once secret stores is a dedicated
+   * rotate route that returns the raw secret exactly once - every
+   * other surface stays secret-blind, the previous secret is
+   * invalidated immediately, and unknown, foreign, and concurrently
+   * deleted endpoints answer the same uniform 404 as the other
+   * endpoint routes.
+   */
+  @Post('endpoints/:endpointId/rotate-secret')
+  rotateEndpointSecret(
+    @Req() request: AuthenticatedRequest,
+    @Param('organizationId') organizationId: string,
+    @Param('endpointId') endpointId: string,
+  ) {
+    return this.webhooks.rotateEndpointSecret(request.user.sub, organizationId, endpointId);
+  }
   @Post('dispatch')
   dispatch(
     @Req() request: AuthenticatedRequest,
