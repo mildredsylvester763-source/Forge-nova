@@ -1,6 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
+import {
+  WriteActor,
+  actorAttribution,
+  actorAuditMetadata,
+  actorAuditOrganization,
+  keyActorFromApiKey,
+} from '../api-keys/engine/api-key-policy';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { WebhookService } from '../integrations/webhook.service';
@@ -39,6 +46,43 @@ export class DeploymentService {
 
   async createDeployment(userId: string, applicationId: string, dto: { environment: string; target?: string; notes?: string }) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.createForActor({ kind: 'user', userId }, applicationId, dto);
+  }
+
+  /**
+   * Key-authenticated deployment create. Grounded in the GitHub
+   * create-a-deployment REST surface, where a fine-grained token
+   * needs the Deployments repository permission set to write,
+   * never read: the writable tenant bound refuses foreign, missing,
+   * and archived applications with one uniform 404, the readiness
+   * gate answers BLOCKED with the same honest 400 report as the JWT
+   * route, and the landed intent lands in the audit trail exactly
+   * once, stamped via genapi with the acting key.
+   */
+  async createDeploymentForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    dto: { environment: string; target?: string; notes?: string },
+  ) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    return this.createForActor(keyActorFromApiKey(key), applicationId, dto);
+  }
+
+  /**
+   * The one create core shared by the JWT route and the genapi key
+   * route, so the two surfaces can never drift apart: the same
+   * readiness gate with the same honest BLOCKED refusal, the same
+   * none-configured adapter disclaimer, the same audit row law, and
+   * the same deployment.recorded event. A keyed create attributes
+   * to the key creator and stamps the acting key into the trail;
+   * a user create keeps its existing row shape exactly.
+   */
+  private async createForActor(
+    actor: WriteActor,
+    applicationId: string,
+    dto: { environment: string; target?: string; notes?: string },
+  ) {
+    const attributedUserId = actorAttribution(actor);
     const { report, fileCount } = await this.buildReport(applicationId);
 
     if (report.verdict === 'BLOCKED') {
@@ -67,17 +111,18 @@ export class DeploymentService {
 
     await this.prisma.auditEvent.create({
       data: {
-        actorUserId: userId,
+        actorUserId: attributedUserId,
+        organizationId: actorAuditOrganization(actor),
         action: 'application.deployment.record',
         resourceType: 'deployment',
         resourceId: deployment.id,
         outcome: 'SUCCESS',
-        metadata: {
+        metadata: actorAuditMetadata(actor, {
           applicationId,
           environment: dto.environment,
           verdict: report.verdict,
           adapter: 'none-configured',
-        },
+        }),
       },
     });
 
