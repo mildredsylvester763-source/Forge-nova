@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -124,5 +124,48 @@ export class WebhooksController {
     @Param('deliveryId') deliveryId: string,
   ) {
     return this.webhooks.retry(request.user.sub, organizationId, deliveryId);
+  }
+
+  /**
+   * Per-endpoint delivery history. Grounded in the GitHub hook
+   * deliveries listing: reading delivery history needs only read
+   * permission, the rows come back newest first capped at 100 like
+   * the GitHub per_page maximum, and the optional status filter is
+   * a real predicate - unknown, case-mangled, and padded values are
+   * refused by name, never silently ignored. Foreign,
+   * cross-organization, and unknown endpoint ids all answer one
+   * uniform 404, and there is deliberately no audit row for reads.
+   */
+  @Get('endpoints/:endpointId/deliveries')
+  endpointDeliveries(
+    @Req() request: AuthenticatedRequest,
+    @Param('organizationId') organizationId: string,
+    @Param('endpointId') endpointId: string,
+    @Query('status') status?: string,
+  ) {
+    return this.webhooks.listEndpointDeliveries(request.user.sub, organizationId, endpointId, status);
+  }
+
+  /**
+   * Single delivery inspection. Grounded in the GitHub single
+   * delivery read: the payload and the recorded error are part of
+   * the honest delivery record, so the inspect includes both. The
+   * delivery must belong to the named endpoint, so cross-endpoint,
+   * foreign, and unknown ids all answer one uniform 404, and there
+   * is deliberately no audit row for reads.
+   */
+  @Get('endpoints/:endpointId/deliveries/:deliveryId')
+  inspectEndpointDelivery(
+    @Req() request: AuthenticatedRequest,
+    @Param('organizationId') organizationId: string,
+    @Param('endpointId') endpointId: string,
+    @Param('deliveryId') deliveryId: string,
+  ) {
+    return this.webhooks.inspectEndpointDelivery(
+      request.user.sub,
+      organizationId,
+      endpointId,
+      deliveryId,
+    );
   }
 }
