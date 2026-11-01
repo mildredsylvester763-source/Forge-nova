@@ -48,6 +48,20 @@ export class ConversationController {
     return this.conversations.archive(request.user.sub, conversationId);
   }
 
+  /**
+   * Conversation unarchive on the JWT surface. Grounded in the
+   * GitHub conversation unlock: write access is required, and
+   * repeat unlocks succeed, so unarchiving an unarchived
+   * conversation is an honest success that clears the stamp.
+   */
+  @Patch('conversations/:conversationId/unarchive')
+  unarchive(
+    @Req() request: AuthenticatedRequest,
+    @Param('conversationId') conversationId: string,
+  ) {
+    return this.conversations.unarchive(request.user.sub, conversationId);
+  }
+
   @Get('conversations/:conversationId/messages')
   listMessages(
     @Req() request: AuthenticatedRequest,
