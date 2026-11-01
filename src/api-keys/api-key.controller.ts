@@ -460,6 +460,26 @@ export class GenapiController {
     return this.references.extractForKey(request.apiKey!, applicationId, referenceId);
   }
 
+  /**
+   * Key-authenticated reference delete. Grounded in the market leaders:
+   * a GitHub fine-grained token needs Contents write to delete a file,
+   * and the OpenAI file delete runs straight from a Bearer API key and
+   * answers with the honest id plus deleted shape. WRITE_APPLICATIONS
+   * grants the delete; the writable tenant bound refuses foreign,
+   * missing, and archived applications with one uniform 404; and the
+   * delete lands in the audit trail exactly once, attributed to the
+   * acting key, exactly like the JWT delete.
+   */
+  @Post('applications/:applicationId/references/:referenceId/delete')
+  @RequireScopes('WRITE_APPLICATIONS')
+  deleteReference(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('referenceId') referenceId: string,
+  ) {
+    return this.references.removeForKey(request.apiKey!, applicationId, referenceId);
+  }
+
   
   @Get('applications/:applicationId/jobs/:jobId')
   @RequireScopes('READ_APPLICATIONS')
