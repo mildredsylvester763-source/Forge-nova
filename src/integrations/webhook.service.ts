@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { AccessControlService } from '../authorization/access-control.service';
 import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
+import { actorAuditMetadata, keyActorFromApiKey } from '../api-keys/engine/api-key-policy';
 import { PrismaService } from '../database/prisma.service';
 import { CreateWebhookEndpointDto } from './dto/create-webhook-endpoint.dto';
 import { DispatchEventDto } from './dto/dispatch-event.dto';
@@ -616,6 +617,133 @@ export class WebhookService {
     return delivery;
   }
 
+  /**
+   * Key-authenticated dispatch, grounded in the GitHub repository
+   * dispatch event (POST /repos/{owner}/{repo}/dispatches behind the
+   * Contents write permission): a machine identity with write access
+   * triggers webhook deliveries straight from a token. The keyed
+   * dispatch mirrors the JWT dispatch exactly - the same event-name
+   * validation, the same subscription matching, the same honest zero
+   * for no matching endpoints, and the same synchronous signed
+   * attempts - tenant-bounded to the key organization, and the audit
+   * row is stamped via genapi with the acting key so the trail shows
+   * which key dispatched. Refusals never write audit rows.
+   */
+  async dispatchForKey(key: AuthenticatedApiKey, dto: DispatchEventDto) {
+    const validated = validateEventName(dto.eventName);
+    if (!validated.ok) {
+      throw new BadRequestException('Unknown event name: ' + dto.eventName);
+    }
+
+    const endpoints = await this.prisma.webhookEndpoint.findMany({
+      where: { organizationId: key.organizationId, active: true },
+    });
+    const matching = endpoints.filter((endpoint) =>
+      matchesSubscriptions(endpoint.eventSubscriptions, dto.eventName),
+    );
+
+    const results = [];
+    for (const endpoint of matching) {
+      const delivery = await this.createDeliveryForEndpoint(
+        endpoint.id,
+        key.organizationId,
+        dto.eventName,
+        (dto.payload ?? {}) as Prisma.InputJsonValue,
+      );
+      if (!delivery) {
+        continue;
+      }
+      const outcome = await this.attemptDelivery(delivery.id);
+      results.push(outcome ?? {
+        deliveryId: delivery.id,
+        endpointId: endpoint.id,
+        status: delivery.status,
+        attempts: delivery.attempts,
+        lastStatusCode: null,
+        lastError: 'attempt already in progress',
+      });
+    }
+
+    const actor = keyActorFromApiKey(key);
+    await this.prisma.auditEvent.create({
+      data: {
+        actorUserId: actor.attributedUserId,
+        organizationId: key.organizationId,
+        action: 'webhook.dispatch',
+        resourceType: 'webhook_delivery',
+        resourceId: dto.eventName,
+        outcome: 'SUCCESS',
+        metadata: actorAuditMetadata(actor, {
+          eventName: dto.eventName,
+          matchedEndpoints: matching.length,
+        }),
+      },
+    });
+
+    return {
+      eventName: dto.eventName,
+      matchedEndpoints: matching.length,
+      deliveries: results,
+    };
+  }
+
+  /**
+   * Key-authenticated manual retry, grounded in the GitHub webhook
+   * redelivery (the POST attempts route behind admin access): a
+   * redelivery is a write on the delivery record, never a read, and
+   * keys are minted only by organization admins, so a WRITE_ORGANIZATION
+   * key is an admin-delegated write exactly like the read delegation
+   * on the audit trail. The keyed retry mirrors the JWT retry exactly -
+   * the same backoff gate with the same honest 409s and the same atomic
+   * PENDING-to-IN_FLIGHT claim so two racers can never double-send -
+   * tenant-bounded to the key organization with one uniform 404, and
+   * the audit row is stamped via genapi with the acting key. Refused
+   * retries never write audit rows.
+   */
+  async retryForKey(key: AuthenticatedApiKey, deliveryId: string) {
+    const delivery = await this.prisma.webhookDelivery.findFirst({
+      where: { id: deliveryId, organizationId: key.organizationId },
+      include: { endpoint: true },
+    });
+    if (!delivery || !delivery.endpoint) {
+      throw new NotFoundException('Webhook delivery not found.');
+    }
+
+    const gate = canRetryNow({
+      status: delivery.status,
+      attempts: delivery.attempts,
+      nextAttemptAt: delivery.nextAttemptAt,
+      now: new Date(),
+    });
+    if (!gate.ok) {
+      if (gate.reason === 'webhook-retry-too-early') {
+        throw new ConflictException('Retry is not due yet.');
+      }
+      throw new ConflictException('No retries remain for this delivery.');
+    }
+
+    const outcome = await this.attemptDelivery(deliveryId);
+    if (!outcome) {
+      throw new ConflictException('Delivery is already being attempted.');
+    }
+
+    const actor = keyActorFromApiKey(key);
+    await this.prisma.auditEvent.create({
+      data: {
+        actorUserId: actor.attributedUserId,
+        organizationId: key.organizationId,
+        action: 'webhook.retry',
+        resourceType: 'webhook_delivery',
+        resourceId: deliveryId,
+        outcome: 'SUCCESS',
+        metadata: actorAuditMetadata(actor, {
+          status: outcome.status,
+          attempts: outcome.attempts,
+        }),
+      },
+    });
+    return outcome;
+  }
   /**
    * System emission - the outbox law: emission happens AFTER the parent
    * operation has committed, is best-effort, and can NEVER fail or roll
