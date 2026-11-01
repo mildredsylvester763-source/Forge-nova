@@ -451,10 +451,12 @@ suite('genapi key-authenticated work graph plan flows (real app, real database)'
   });
 
   it('race: keyed against JWT converges both callers on the winning job', async () => {
-    const rowsBefore = await jobsForGraph(applicationIdA, graphD);
+    // A fresh draft graph so no active plan job exists yet: the race
+    // must actually race the insert, not replay an existing job.
+    const raceGraph = await createGraph(hank.tokens.accessToken, applicationIdA, 'Cross Race Fresh Graph');
     const raced = await Promise.all([
-      planKeyed(applicationIdA, graphD.id, writerKey.key),
-      planJwt(graphD.id, hank.tokens.accessToken),
+      planKeyed(applicationIdA, raceGraph.id, writerKey.key),
+      planJwt(raceGraph.id, hank.tokens.accessToken),
     ]);
     // Both surfaces run the one shared plan core, so whichever insert
     // wins, the loser rechecks the active job and converges on it:
@@ -464,7 +466,7 @@ suite('genapi key-authenticated work graph plan flows (real app, real database)'
     }
     const jobIds = new Set(raced.map((response) => (response.body as { jobId: string }).jobId));
     expect(jobIds.size).toBe(1);
-    expect(await jobsForGraph(applicationIdA, graphD)).toBe(rowsBefore + 1);
+    expect(await jobsForGraph(applicationIdA, raceGraph)).toBe(1);
 
     const winnerId = Array.from(jobIds)[0];
     const row = await prisma.workJob.findUnique({
