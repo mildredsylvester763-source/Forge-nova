@@ -9,6 +9,7 @@ import { WorkGraphModule } from '../work-graphs/work-graph.module';
 import { ConversationModule } from '../conversations/conversation.module';
 import { ReferencesModule } from '../references/references.module';
 import { DeploymentModule } from '../deployments/deployment.module';
+import { IntegrationsModule } from '../integrations/integrations.module';
 import { OrganizationModule } from '../organizations/organization.module';
 import { WorkspaceModule } from '../workspaces/workspace.module';
 import { ProjectModule } from '../projects/project.module';
@@ -28,6 +29,7 @@ import { ApiKeyService } from './api-key.service';
     ConversationModule,
     ReferencesModule,
     DeploymentModule,
+    IntegrationsModule,
     OrganizationModule,
     WorkspaceModule,
     ProjectModule,
