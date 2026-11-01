@@ -123,6 +123,21 @@ export class GenapiController {
   }
 
   /**
+   * Key-authenticated organization member directory. Grounded in
+   * the GitHub org members listing, where reading who belongs to
+   * an organization needs only the Members organization read
+   * permission: the rows mirror the JWT member listing exactly
+   * through the shared core, the listing is bounded to the key
+   * organization because the key IS the tenant bound, and reads
+   * never write audit rows.
+   */
+  @Get('members')
+  @RequireScopes('READ_ORGANIZATION')
+  listMembers(@Req() request: KeyedRequest) {
+    return this.organizations.listMembersForKey(request.apiKey!);
+  }
+
+  /**
    * Key-authenticated webhook endpoint listing. Grounded in the
    * Stripe webhook endpoints REST surface, where the listing runs
    * with a restricted read key and an empty organization answers
