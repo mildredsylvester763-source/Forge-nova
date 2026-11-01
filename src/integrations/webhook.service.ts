@@ -5,6 +5,7 @@ import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { CreateWebhookEndpointDto } from './dto/create-webhook-endpoint.dto';
 import { DispatchEventDto } from './dto/dispatch-event.dto';
+import { UpdateWebhookEndpointDto } from './dto/update-webhook-endpoint.dto';
 import { backoffSeconds, canRetryNow, nextDeliveryStatus } from './engine/delivery-backoff.engine';
 import { parseDeliveryStatusFilter } from './engine/delivery-status.engine';
 import { matchesSubscriptions, validateEventName, validateSubscription } from './engine/event-subscription.engine';
@@ -146,6 +147,109 @@ export class WebhookService {
     });
     if (!deleted) throw new NotFoundException('Webhook endpoint not found.');
     return { deleted: true, endpointId };
+  }
+
+  /**
+   * Partial endpoint update, grounded in the GitHub webhook update
+   * (Webhooks write permission) and the Stripe webhook endpoint update:
+   * only the fields sent change and everything else stays untouched.
+   * The signing secret is deliberately not updatable, so deliveries
+   * keep being signed with the original reveal-once secret whatever
+   * the update changes. A PATCH that provides no fields is an honest
+   * no-op that returns the current row and writes no audit row; any
+   * provided field lands exactly one audit row. Unknown, foreign, and
+   * concurrently deleted endpoints all answer one uniform 404, and a
+   * URL already used by another endpoint in the organization answers
+   * the same conflict as the create route.
+   */
+  async updateEndpoint(
+    userId: string,
+    organizationId: string,
+    endpointId: string,
+    dto: UpdateWebhookEndpointDto,
+  ) {
+    await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+
+    const hasUrl = typeof dto.url === 'string';
+    const hasSubscriptions = Array.isArray(dto.eventSubscriptions);
+    const hasActive = typeof dto.active === 'boolean';
+
+    if (!hasUrl && !hasSubscriptions && !hasActive) {
+      const current = await this.prisma.webhookEndpoint.findFirst({
+        where: { id: endpointId, organizationId },
+        select: ENDPOINT_SELECT,
+      });
+      if (!current) throw new NotFoundException('Webhook endpoint not found.');
+      return current;
+    }
+
+    if (hasUrl) {
+      let parsed: URL;
+      try {
+        parsed = new URL(dto.url!);
+      } catch {
+        throw new BadRequestException('Webhook URL must be a valid URL.');
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new BadRequestException('Webhook URL must use http or https.');
+      }
+    }
+
+    let subscriptions: string[] | undefined;
+    if (hasSubscriptions) {
+      subscriptions = [];
+      for (const subscription of dto.eventSubscriptions!) {
+        const validated = validateSubscription(subscription);
+        if (!validated.ok) {
+          throw new BadRequestException('Invalid event subscription: ' + subscription);
+        }
+        if (!subscriptions.includes(subscription)) {
+          subscriptions.push(subscription);
+        }
+      }
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const result = await tx.webhookEndpoint.updateMany({
+          where: { id: endpointId, organizationId },
+          data: {
+            ...(hasUrl ? { url: dto.url! } : {}),
+            ...(hasSubscriptions ? { eventSubscriptions: subscriptions! } : {}),
+            ...(hasActive ? { active: dto.active! } : {}),
+          },
+        });
+        if (result.count !== 1) throw new NotFoundException('Webhook endpoint not found.');
+        const endpoint = await tx.webhookEndpoint.findUnique({
+          where: { id: endpointId },
+          select: ENDPOINT_SELECT,
+        });
+        await tx.auditEvent.create({
+          data: {
+            actorUserId: userId,
+            organizationId,
+            action: 'webhook.endpoint.update',
+            resourceType: 'webhook_endpoint',
+            resourceId: endpointId,
+            outcome: 'SUCCESS',
+            metadata: {
+              ...(hasUrl ? { url: dto.url! } : {}),
+              ...(hasSubscriptions ? { eventSubscriptions: subscriptions! } : {}),
+              ...(hasActive ? { active: dto.active! } : {}),
+            },
+          },
+        });
+        return endpoint!;
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('A webhook endpoint with this URL already exists.');
+      }
+      throw error;
+    }
   }
 
   /**
