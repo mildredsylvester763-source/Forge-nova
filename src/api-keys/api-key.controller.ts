@@ -21,6 +21,7 @@ import { WorkGraphService } from '../work-graphs/work-graph.service';
 import { CreateWorkGraphDto } from '../work-graphs/dto/create-work-graph.dto';
 import { CreateWorkNodeDto } from '../work-graphs/dto/create-work-node.dto';
 import { DeploymentService } from '../deployments/deployment.service';
+import { CreateDeploymentDto } from '../deployments/dto/create-deployment.dto';
 import { OrganizationService } from '../organizations/organization.service';
 import { WebhookService } from '../integrations/webhook.service';
 import { CreateWebhookEndpointDto } from '../integrations/dto/create-webhook-endpoint.dto';
@@ -937,6 +938,25 @@ export class GenapiController {
     @Param('deploymentId') deploymentId: string,
   ) {
     return this.deployments.getForKey(request.apiKey!, applicationId, deploymentId);
+  }
+
+  /**
+   * Key-authenticated deployment create. Grounded in the GitHub
+   * create-a-deployment REST surface, where a fine-grained token
+   * needs the Deployments repository permission set to write,
+   * never read: the readiness gate answers BLOCKED with the same
+   * honest 400 report as the JWT route, the recorded intent keeps
+   * the none-configured adapter disclaimer, and the audit row is
+   * stamped via genapi with the acting key.
+   */
+  @Post('applications/:applicationId/deployments')
+  @RequireScopes('WRITE_APPLICATIONS')
+  createDeployment(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Body() dto: CreateDeploymentDto,
+  ) {
+    return this.deployments.createDeploymentForKey(request.apiKey!, applicationId, dto);
   }
 
   @Post('applications/:applicationId/files')
