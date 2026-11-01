@@ -54,6 +54,36 @@ export class JobQueueService {
     idempotencyKey?: string,
   ) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.enqueueJob(applicationId, type, input, idempotencyKey);
+  }
+
+  /**
+   * Key-authenticated job enqueue. Grounded in the market leaders:
+   * the OpenAI create-a-model-response and the Anthropic
+   * create-a-message both run generation straight from an API key,
+   * and an OpenAI key is bounded to its organization and project
+   * with revocation effective within seconds. The writable tenant
+   * bound refuses foreign, missing, and archived applications with
+   * one uniform 404, and the idempotency law is the one shared
+   * core, so the JWT and key surfaces can never drift apart.
+   */
+  async enqueueForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    type: JobType,
+    input: Prisma.InputJsonValue,
+    idempotencyKey?: string,
+  ) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    return this.enqueueJob(applicationId, type, input, idempotencyKey);
+  }
+
+  private async enqueueJob(
+    applicationId: string,
+    type: JobType,
+    input: Prisma.InputJsonValue,
+    idempotencyKey?: string,
+  ) {
     const serialized = this.stableStringify(input);
     if (Buffer.byteLength(serialized, 'utf8') > MAX_JOB_INPUT_BYTES) {
       throw new BadRequestException('Job input cannot exceed 256 KB.');
