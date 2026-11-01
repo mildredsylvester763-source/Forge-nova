@@ -282,7 +282,7 @@ suite('GENESIS webhook ping flows (real app, real database)', () => {
       hank.tokens.accessToken,
       organizationId,
       deadUrl,
-      ['application.created'],
+      ['checkpoint.created'],
     );
     deadEndpointId = dead.id;
 
