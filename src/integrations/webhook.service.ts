@@ -6,6 +6,7 @@ import { PrismaService } from '../database/prisma.service';
 import { CreateWebhookEndpointDto } from './dto/create-webhook-endpoint.dto';
 import { DispatchEventDto } from './dto/dispatch-event.dto';
 import { backoffSeconds, canRetryNow, nextDeliveryStatus } from './engine/delivery-backoff.engine';
+import { parseDeliveryStatusFilter } from './engine/delivery-status.engine';
 import { matchesSubscriptions, validateEventName, validateSubscription } from './engine/event-subscription.engine';
 import { buildSystemPayload } from './engine/system-events.engine';
 import { SIGNATURE_HEADER, signPayload } from './engine/webhook-signature.engine';
@@ -269,6 +270,71 @@ export class WebhookService {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+  }
+
+  /**
+   * Per-endpoint delivery history, grounded in the GitHub hook
+   * deliveries listing: reading delivery history needs only read
+   * permission, the rows come back newest first capped at 100 like
+   * the GitHub per_page maximum, and the status filter is a real
+   * predicate - an unknown value is a named 400, never a silently
+   * ignored filter. Foreign, cross-organization, and unknown
+   * endpoint ids all answer the same uniform 404, and reads never
+   * write audit rows.
+   */
+  async listEndpointDeliveries(
+    userId: string,
+    organizationId: string,
+    endpointId: string,
+    status?: string,
+  ) {
+    await this.access.requireOrganizationRole(userId, organizationId, this.access.allRoles());
+    const endpoint = await this.prisma.webhookEndpoint.findFirst({
+      where: { id: endpointId, organizationId },
+      select: { id: true },
+    });
+    if (!endpoint) throw new NotFoundException('Webhook endpoint not found.');
+    const parsed = parseDeliveryStatusFilter(status);
+    if (!parsed.ok) {
+      throw new BadRequestException('Unknown delivery status: ' + status);
+    }
+    return this.prisma.webhookDelivery.findMany({
+      where: {
+        endpointId,
+        ...(parsed.status === undefined ? {} : { status: parsed.status }),
+      },
+      select: DELIVERY_SELECT,
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+  }
+
+  /**
+   * Single delivery inspection, grounded in the GitHub single
+   * delivery read: the payload and the recorded error are part of
+   * the honest delivery record, so the inspect includes both. The
+   * delivery must belong to the named endpoint, so cross-endpoint,
+   * foreign, and unknown ids all answer the same uniform 404, and
+   * reads never write audit rows.
+   */
+  async inspectEndpointDelivery(
+    userId: string,
+    organizationId: string,
+    endpointId: string,
+    deliveryId: string,
+  ) {
+    await this.access.requireOrganizationRole(userId, organizationId, this.access.allRoles());
+    const endpoint = await this.prisma.webhookEndpoint.findFirst({
+      where: { id: endpointId, organizationId },
+      select: { id: true },
+    });
+    if (!endpoint) throw new NotFoundException('Webhook endpoint not found.');
+    const delivery = await this.prisma.webhookDelivery.findFirst({
+      where: { id: deliveryId, endpointId },
+      select: { ...DELIVERY_SELECT, payload: true },
+    });
+    if (!delivery) throw new NotFoundException('Webhook delivery not found.');
+    return delivery;
   }
 
   /**
