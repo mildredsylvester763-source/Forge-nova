@@ -5,6 +5,7 @@ import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { CreateWorkspaceDto } from './dto/create-workspace.dto';
+import { UpdateWorkspaceDto } from './dto/update-workspace.dto';
 
 const WORKSPACE_LIST_SELECT = {
   id: true,
@@ -75,7 +76,54 @@ export class WorkspaceService {
     return this.persistWorkspace(dto);
   }
 
-  private async persistWorkspace(dto: CreateWorkspaceDto) {
+  /**
+   * Workspace rename. Grounded in the GitHub team update (PATCH
+   * /orgs/{org}/teams/{team_slug}): editing a grouping structure is
+   * an admin write, and sending the name changes the display label
+   * while the slug stays stable, because the slug is the immutable
+   * server-derived identifier. The rename writes no audit row
+   * because the workspace create surface writes none either.
+   */
+  async update(userId: string, workspaceId: string, dto: UpdateWorkspaceDto) {
+    await this.access.requireWorkspaceRole(userId, workspaceId, this.access.adminRoles());
+    return this.applyWorkspaceUpdate(workspaceId, dto);
+  }
+
+  /**
+   * Key-authenticated workspace rename. Grounded in the GitHub team
+   * update behind the Members organization write permission: keys are
+   * minted only by organization admins, so a WRITE_ORGANIZATION key
+   * is an admin-delegated rename, and a workspace outside the key
+   * organization answers the same uniform 404 as an unknown one, so
+   * the surface never leaks what exists in other tenants. The slug
+   * stays stable and there is no audit row because the JWT rename
+   * writes none either.
+   */
+  async updateForKey(key: AuthenticatedApiKey, workspaceId: string, dto: UpdateWorkspaceDto) {
+    const workspace = await this.prisma.workspace.findFirst({
+      where: { id: workspaceId, organizationId: key.organizationId },
+      select: { id: true },
+    });
+    if (!workspace) throw new NotFoundException('Workspace not found.');
+    return this.applyWorkspaceUpdate(workspaceId, dto);
+  }
+
+  private async applyWorkspaceUpdate(workspaceId: string, dto: UpdateWorkspaceDto) {
+    return this.prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { name: dto.name.trim() },
+      select: {
+        id: true,
+        organizationId: true,
+        name: true,
+        slug: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+    private async persistWorkspace(dto: CreateWorkspaceDto) {
     const base = dto.name
       .normalize('NFKD')
       .replace(/[^a-zA-Z0-9]+/g, '-')
