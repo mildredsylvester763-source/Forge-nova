@@ -36,6 +36,34 @@ export class ApplicationService {
 
   async listForProject(userId: string, projectId: string) {
     await this.access.requireProjectRole(userId, projectId, this.access.allRoles());
+    return this.listApplicationsInProject(projectId);
+  }
+
+  /**
+   * Key-authenticated per-project application listing. Grounded in the
+   * market leaders: the GitHub list-organization-repositories surface
+   * lists child resources with nothing more than the base read
+   * permission, and the OpenAI list-projects surface returns the
+   * children of one organization as a flat array straight from an API
+   * key. The readable tenant bound refuses foreign, missing, and
+   * deleted projects with one uniform 404, the rows mirror the JWT
+   * per-project listing exactly through the shared core, and reads
+   * never write audit rows.
+   */
+  async listForProjectForKey(key: AuthenticatedApiKey, projectId: string) {
+    const project = await this.prisma.project.findFirst({
+      where: {
+        id: projectId,
+        status: { not: 'DELETED' },
+        workspace: { organizationId: key.organizationId },
+      },
+      select: { id: true },
+    });
+    if (!project) throw new NotFoundException('Project not found.');
+    return this.listApplicationsInProject(projectId);
+  }
+
+  private listApplicationsInProject(projectId: string) {
     return this.prisma.application.findMany({
       where: { projectId, status: { not: ApplicationStatus.ARCHIVED } },
       select: APPLICATION_SELECT,
