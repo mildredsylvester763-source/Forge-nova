@@ -581,6 +581,28 @@ export class GenapiController {
   }
 
   /**
+   * Key-authenticated per-project application listing. Grounded in
+   * the market leaders: the GitHub list-organization-repositories
+   * surface lists child resources with nothing more than the base
+   * read permission, and the OpenAI list-projects surface returns
+   * the children of one organization as a flat array straight from
+   * an API key. READ_APPLICATIONS governs the listing because the
+   * rows are application rows; the readable tenant bound refuses
+   * foreign, missing, and deleted projects with one uniform 404;
+   * the rows mirror the JWT per-project listing exactly through the
+   * shared core (newest activity first, archived applications
+   * hidden); and reads never write audit rows.
+   */
+  @Get('projects/:projectId/applications')
+  @RequireScopes('READ_APPLICATIONS')
+  listProjectApplications(
+    @Req() request: KeyedRequest,
+    @Param('projectId') projectId: string,
+  ) {
+    return this.apps.listForProjectForKey(request.apiKey!, projectId);
+  }
+
+  /**
    * Key-authenticated project create. Grounded in the GitHub Projects
    * REST surface, where creating an organization project needs the
    * Projects write permission: the workspace must belong to the key
