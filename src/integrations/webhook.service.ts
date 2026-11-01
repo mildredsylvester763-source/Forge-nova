@@ -316,6 +316,54 @@ export class WebhookService {
   }
 
   /**
+   * Signing-secret rotation, grounded in the market-wide law that a
+   * webhook secret must be replaceable without deleting the endpoint:
+   * GitHub rotates the secret through the update config.secret surface
+   * and the industry pattern for reveal-once secret stores is a
+   * dedicated rotate route that hands back the raw secret exactly
+   * once. GENESIS keeps the PATCH blind to the secret by design, so
+   * this route is the only surface that can ever reveal a secret
+   * again: the previous secret is invalidated immediately - the
+   * receiver updates its verifier with the revealed value - with no
+   * Stripe-style dual-signing overlap window, because an overlap
+   * would need a second stored secret and a schema change. The claim
+   * is an atomic updateMany, so a rotation racing an endpoint delete
+   * ends in one clean way whatever order the writes land in, and
+   * every landed rotation writes exactly one audit row.
+   */
+  async rotateEndpointSecret(userId: string, organizationId: string, endpointId: string) {
+    await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+
+    const secret = 'whsec_' + randomBytes(24).toString('hex');
+
+    const rotated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.webhookEndpoint.updateMany({
+        where: { id: endpointId, organizationId },
+        data: { secret },
+      });
+      if (result.count !== 1) return null;
+      const endpoint = await tx.webhookEndpoint.findUnique({
+        where: { id: endpointId },
+        select: ENDPOINT_SELECT,
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorUserId: userId,
+          organizationId,
+          action: 'webhook.endpoint.rotate_secret',
+          resourceType: 'webhook_endpoint',
+          resourceId: endpointId,
+          outcome: 'SUCCESS',
+          metadata: {},
+        },
+      });
+      return endpoint;
+    });
+    if (!rotated) throw new NotFoundException('Webhook endpoint not found.');
+    return { ...rotated, secret };
+  }
+
+  /**
    * Dispatches an event: every ACTIVE endpoint whose subscriptions
    * match the event gets one delivery row and one SYNCHRONOUS signed
    * attempt. No matching endpoints is an honest zero, not an error.
