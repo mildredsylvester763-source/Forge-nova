@@ -333,7 +333,6 @@ suite('GENESIS genapi project application flows (real app, real database)', () =
 
   it('refuses keys without the matching scope with one message', async () => {
     const messages = new Set<string>();
-    const projectReader = await keyedListing().then(() => null).catch(() => null);
     const refusedProject = await api(
       'GET',
       '/genapi/projects/' + projectAId + '/applications',
@@ -352,7 +351,6 @@ suite('GENESIS genapi project application flows (real app, real database)', () =
     messages.add((refusedOrg.body as { message: string }).message);
     expect(messages.size).toBe(1);
     expect(Array.from(messages)[0]).toBe('The API key does not grant the required scope.');
-    expect(projectReader).toBe(null);
   });
 
   it('tenant-bounds keys to the projects of their own organization', async () => {
