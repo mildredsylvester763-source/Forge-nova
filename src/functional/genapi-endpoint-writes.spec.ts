@@ -227,7 +227,7 @@ suite('GENESIS keyed webhook endpoint write flows (real app, real database)', ()
       new Date(Date.now() + 2000).toISOString(),
     );
     revokedKey = await createKey(hank.tokens.accessToken, organizationId, 'Revoked Writer', ['WRITE_ORGANIZATION']);
-    irisWriter = await createKey(iris.tokens.accessToken, foreignOrganizationId, 'Iris Writer', ['WRITE_ORGANIZATION']);
+    irisWriter = await createKey(iris.tokens.accessToken, foreignOrganizationId, 'Iris Writer', ['READ_ORGANIZATION', 'WRITE_ORGANIZATION']);
 
     const revoke = await api(
       'POST',
@@ -463,10 +463,16 @@ suite('GENESIS keyed webhook endpoint write flows (real app, real database)', ()
 
     const mine = await rowsForSince('webhook.endpoint.ping', orgWriter.id, marker);
     expect(mine.length).toBe(2);
-    const meta = mine[0].metadata as { via: string; apiKeyId: string; endpointId: string };
-    expect(meta.via).toBe('genapi');
-    expect(meta.apiKeyId).toBe(orgWriter.id);
-    expect(meta.endpointId).toBe(keyedEndpointId);
+    const pingedIds = mine.map(
+      (row) => ((row.metadata ?? {}) as { endpointId?: string }).endpointId,
+    );
+    expect(pingedIds).toContain(keyedEndpointId);
+    expect(pingedIds).toContain(deadEndpointId);
+    for (const row of mine) {
+      const meta = row.metadata as { via: string; apiKeyId: string };
+      expect(meta.via).toBe('genapi');
+      expect(meta.apiKeyId).toBe(orgWriter.id);
+    }
   });
 
   it('rotates from a key: fresh reveal-once secret and a delivery that still lands', async () => {
@@ -510,7 +516,7 @@ suite('GENESIS keyed webhook endpoint write flows (real app, real database)', ()
     const hankIds = (hankListing.body as unknown as Array<{ id: string }>).map((row) => row.id);
     expect(hankIds).not.toContain(irisEndpointId);
 
-    const irisListing = await api('GET', '/genapi/webhook-endpoints', undefined, createKey.name === '' ? '' : irisWriter.raw);
+    const irisListing = await api('GET', '/genapi/webhook-endpoints', undefined, irisWriter.raw);
     const irisIds = (irisListing.body as unknown as Array<{ id: string }>).map((row) => row.id);
     expect(irisIds).toContain(irisEndpointId);
     expect(irisIds).not.toContain(keyedEndpointId);
