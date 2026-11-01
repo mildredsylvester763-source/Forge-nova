@@ -154,6 +154,57 @@ export class ConversationService {
   }
 
   /**
+   * The one unarchive core shared by the JWT route and the genapi key
+   * route: the archivedAt stamp is cleared honestly and the response
+   * mirrors the archive shape, so unarchiving an unarchived
+   * conversation succeeds, mirroring the idempotent GitHub
+   * conversation unlock that succeeds on every repeat.
+   */
+  private unarchiveForConversation(conversationId: string) {
+    return this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { archivedAt: null },
+      select: { id: true, title: true, archivedAt: true },
+    });
+  }
+
+  async unarchive(userId: string, conversationId: string) {
+    await this.access.requireConversationRole(
+      userId,
+      conversationId,
+      this.access.writeRoles(),
+    );
+    return this.unarchiveForConversation(conversationId);
+  }
+
+  /**
+   * Key-authenticated conversation unarchive. Grounded in the GitHub
+   * conversation unlock: write access is required to unlock an
+   * issue, and repeat unlocks succeed. WRITE_APPLICATIONS grants the
+   * unarchive; the writable tenant bound refuses foreign, missing,
+   * and archived applications with one uniform 404; the conversation
+   * must belong to the named application so cross-application and
+   * unknown ids answer the same uniform 404; and the response
+   * mirrors the JWT unarchive exactly, with no audit row because the
+   * JWT unarchive writes none either.
+   */
+  async unarchiveForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    conversationId: string,
+  ) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, applicationId },
+      select: { id: true },
+    });
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found.');
+    }
+    return this.unarchiveForConversation(conversationId);
+  }
+
+  /**
    * The one message-window law shared by the JWT route and the genapi
    * key route: take defaults to 100 and must be an integer between 1
    * and 100. The evaluation order is part of the contract - an invalid
