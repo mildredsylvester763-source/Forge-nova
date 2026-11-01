@@ -425,7 +425,13 @@ suite('GENESIS genapi reference delete flows (real app, real database)', () => {
     const refused = raced.find((response) => response.status === 404);
     expect((refused?.body as { message: string }).message).toBe('Reference not found.');
     expect(await referenceExists(referenceId)).toBe(false);
-    expect(await deleteAuditCount(referenceId)).toBe(1);
+    // Exactly one landed delete writes exactly one audit row, and the
+    // winner may be either surface: the JWT row keeps the legacy shape
+    // with no organization stamp, so the count spans both shapes.
+    const totalDeleteAudits = await prisma.auditEvent.count({
+      where: { action: 'application.reference.delete', resourceId: referenceId },
+    });
+    expect(totalDeleteAudits).toBe(1);
   });
 
   it('refuses a read-only key with one message and no deleted row', async () => {
