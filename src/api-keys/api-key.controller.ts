@@ -23,7 +23,9 @@ import { CreateWorkNodeDto } from '../work-graphs/dto/create-work-node.dto';
 import { DeploymentService } from '../deployments/deployment.service';
 import { OrganizationService } from '../organizations/organization.service';
 import { WebhookService } from '../integrations/webhook.service';
+import { CreateWebhookEndpointDto } from '../integrations/dto/create-webhook-endpoint.dto';
 import { DispatchEventDto } from '../integrations/dto/dispatch-event.dto';
+import { UpdateWebhookEndpointDto } from '../integrations/dto/update-webhook-endpoint.dto';
 import { WorkspaceService } from '../workspaces/workspace.service';
 import { ProjectService } from '../projects/project.service';
 import { RunVerificationDto } from '../verification/dto/run-verification.dto';
@@ -201,6 +203,89 @@ export class GenapiController {
   @RequireScopes('WRITE_ORGANIZATION')
   retryWebhookDelivery(@Req() request: KeyedRequest, @Param('deliveryId') deliveryId: string) {
     return this.webhooks.retryForKey(request.apiKey!, deliveryId);
+  }
+
+  /**
+   * Keyed endpoint create, grounded in the Stripe webhook endpoint
+   * create REST surface, where a write-capable key creates the
+   * endpoint and the signing secret rides the create response
+   * exactly once. Keys are minted only by organization admins, so a
+   * WRITE_ORGANIZATION key is an admin-delegated write, and every
+   * landed create writes exactly one audit row stamped via genapi.
+   */
+  @Post('webhook-endpoints')
+  @RequireScopes('WRITE_ORGANIZATION')
+  createWebhookEndpoint(@Req() request: KeyedRequest, @Body() dto: CreateWebhookEndpointDto) {
+    return this.webhooks.createEndpointForKey(request.apiKey!, dto);
+  }
+
+  /**
+   * Keyed endpoint partial update, grounded in the Stripe webhook
+   * endpoint update and the GitHub webhook update behind the
+   * Webhooks write permission: only the fields sent change, an empty
+   * body is an honest no-op, and the secret is never updatable. The
+   * keyed update mirrors the JWT PATCH exactly through the shared
+   * core and every landed update writes exactly one audit row.
+   */
+  @Post('webhook-endpoints/:endpointId/update')
+  @RequireScopes('WRITE_ORGANIZATION')
+  updateWebhookEndpoint(
+    @Req() request: KeyedRequest,
+    @Param('endpointId') endpointId: string,
+    @Body() dto: UpdateWebhookEndpointDto,
+  ) {
+    return this.webhooks.updateEndpointForKey(request.apiKey!, endpointId, dto);
+  }
+
+  /**
+   * Keyed endpoint delete, grounded in the GitHub repo webhook
+   * delete behind the Webhooks write permission: deleting an
+   * endpoint immediately stops its deliveries, and racing deletes
+   * get one 200 and one 404 through the shared guarded core. The
+   * delete lands exactly one audit row stamped via genapi with the
+   * acting key.
+   */
+  @Post('webhook-endpoints/:endpointId/delete')
+  @RequireScopes('WRITE_ORGANIZATION')
+  deleteWebhookEndpoint(
+    @Req() request: KeyedRequest,
+    @Param('endpointId') endpointId: string,
+  ) {
+    return this.webhooks.removeEndpointForKey(request.apiKey!, endpointId);
+  }
+
+  /**
+   * Keyed endpoint ping, grounded in the GitHub org webhook ping
+   * behind the Webhooks write permission: the ping is the
+   * market-standard confirmation that an endpoint is configured
+   * and reachable. One honest delivery row with one synchronous
+   * signed attempt lands through the shared core, and every landed
+   * ping writes exactly one audit row stamped via genapi.
+   */
+  @Post('webhook-endpoints/:endpointId/ping')
+  @RequireScopes('WRITE_ORGANIZATION')
+  pingWebhookEndpoint(
+    @Req() request: KeyedRequest,
+    @Param('endpointId') endpointId: string,
+  ) {
+    return this.webhooks.pingEndpointForKey(request.apiKey!, endpointId);
+  }
+
+  /**
+   * Keyed signing-secret rotation, grounded in the GitHub secret
+   * rotation through the update config.secret surface: keys are
+   * minted only by organization admins, so a WRITE_ORGANIZATION key
+   * is an admin-delegated rotation, and the fresh reveal-once
+   * secret rides the rotation response exactly like the create
+   * reveal. Every landed rotation writes exactly one audit row.
+   */
+  @Post('webhook-endpoints/:endpointId/rotate-secret')
+  @RequireScopes('WRITE_ORGANIZATION')
+  rotateWebhookEndpointSecret(
+    @Req() request: KeyedRequest,
+    @Param('endpointId') endpointId: string,
+  ) {
+    return this.webhooks.rotateEndpointSecretForKey(request.apiKey!, endpointId);
   }
 
   /**
