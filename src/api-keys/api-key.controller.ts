@@ -138,6 +138,22 @@ export class GenapiController {
   }
 
   /**
+   * Key-authenticated key inventory. Grounded in the GitHub org
+   * personal access token review surface, where organization owners
+   * inspect the member token inventory with metadata only, while
+   * Stripe keeps its key inventory dashboard-only: the rows mirror
+   * the JWT admin listing exactly through the shared core, masked
+   * hints only, and the listing is bounded to the key organization
+   * because the key IS the tenant bound. Reads never write audit
+   * rows.
+   */
+  @Get('api-keys')
+  @RequireScopes('READ_ORGANIZATION')
+  listApiKeys(@Req() request: KeyedRequest) {
+    return this.apiKeys.listForKey(request.apiKey!);
+  }
+
+  /**
    * Key-authenticated webhook endpoint listing. Grounded in the
    * Stripe webhook endpoints REST surface, where the listing runs
    * with a restricted read key and an empty organization answers
