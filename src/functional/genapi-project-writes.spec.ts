@@ -491,7 +491,11 @@ suite('GENESIS keyed project write flows (real app, real database)', () => {
     expect(scope.status).toBe(403);
     expect((scope.body as { message: string }).message).toBe('The API key does not grant the required scope.');
 
-    const restores = await prisma.auditEvent.count({ where: { action: 'project.restore' } });
+    // Scoped to the run-owned resource ids: parallel suites land their own
+    // project.restore rows, and the refusal targets must have none.
+    const restores = await prisma.auditEvent.count({
+      where: { action: 'project.restore', resourceId: { in: [updateTargetId, foreignProjectId] } },
+    });
     expect(restores).toBe(0);
     expect(await auditCount()).toBe(before);
   });
