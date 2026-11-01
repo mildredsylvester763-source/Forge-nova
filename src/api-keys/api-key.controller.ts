@@ -22,6 +22,7 @@ import { CreateWorkGraphDto } from '../work-graphs/dto/create-work-graph.dto';
 import { CreateWorkNodeDto } from '../work-graphs/dto/create-work-node.dto';
 import { DeploymentService } from '../deployments/deployment.service';
 import { OrganizationService } from '../organizations/organization.service';
+import { WebhookService } from '../integrations/webhook.service';
 import { WorkspaceService } from '../workspaces/workspace.service';
 import { ProjectService } from '../projects/project.service';
 import { RunVerificationDto } from '../verification/dto/run-verification.dto';
@@ -85,6 +86,7 @@ export class GenapiController {
     private readonly references: ReferencesService,
     private readonly deployments: DeploymentService,
     private readonly organizations: OrganizationService,
+    private readonly webhooks: WebhookService,
     private readonly workspaces: WorkspaceService,
     private readonly projectService: ProjectService,
   ) {}
@@ -110,6 +112,64 @@ export class GenapiController {
   @RequireScopes('READ_ORGANIZATION')
   listAuditEvents(@Req() request: KeyedRequest) {
     return this.organizations.listAuditEventsForKey(request.apiKey!);
+  }
+
+  /**
+   * Key-authenticated webhook endpoint listing. Grounded in the
+   * Stripe webhook endpoints REST surface, where the listing runs
+   * with a restricted read key and an empty organization answers
+   * an honest empty array instead of an error: webhook endpoints
+   * are organization-level resources, so the organization read
+   * scope governs the listing, the rows mirror the JWT surface
+   * exactly through the shared core, and the signing secret
+   * never appears in any read. Reads never write audit rows.
+   */
+  @Get('webhook-endpoints')
+  @RequireScopes('READ_ORGANIZATION')
+  listWebhookEndpoints(@Req() request: KeyedRequest) {
+    return this.webhooks.listEndpointsForKey(request.apiKey!);
+  }
+
+  /**
+   * Key-authenticated per-endpoint delivery history. Grounded in
+   * the GitHub hook deliveries listing, where reading delivery
+   * history needs only read permission: the same real status
+   * predicate, the same newest-first capped-at-100 rows, and one
+   * uniform 404 for foreign, cross-organization, and unknown
+   * endpoint ids, exactly like the JWT route through the shared
+   * core. Reads never write audit rows.
+   */
+  @Get('webhook-endpoints/:endpointId/deliveries')
+  @RequireScopes('READ_ORGANIZATION')
+  listWebhookEndpointDeliveries(
+    @Req() request: KeyedRequest,
+    @Param('endpointId') endpointId: string,
+    @Query('status') status?: string,
+  ) {
+    return this.webhooks.listEndpointDeliveriesForKey(request.apiKey!, endpointId, status);
+  }
+
+  /**
+   * Key-authenticated single delivery inspection. Grounded in the
+   * GitHub single delivery read, where the payload and the
+   * recorded error are part of the honest delivery record: the
+   * delivery must belong to the named endpoint, so cross-endpoint
+   * and unknown delivery ids answer one uniform 404, exactly like
+   * the JWT route through the shared core. Reads never write
+   * audit rows.
+   */
+  @Get('webhook-endpoints/:endpointId/deliveries/:deliveryId')
+  @RequireScopes('READ_ORGANIZATION')
+  inspectWebhookEndpointDelivery(
+    @Req() request: KeyedRequest,
+    @Param('endpointId') endpointId: string,
+    @Param('deliveryId') deliveryId: string,
+  ) {
+    return this.webhooks.inspectEndpointDeliveryForKey(
+      request.apiKey!,
+      endpointId,
+      deliveryId,
+    );
   }
 
   /**
