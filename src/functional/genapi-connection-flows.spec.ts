@@ -249,7 +249,7 @@ suite('GENESIS keyed integration connection flows (real app, real database, real
     const keyed = await api('GET', '/genapi/connections', undefined, connKey.key);
     expect(keyed.status).toBe(200);
     expect(Array.isArray(keyed.body)).toBe(true);
-    expect((keyed.body as unknown[]).length).toBe(0);
+    expect((keyed.body as unknown as unknown[]).length).toBe(0);
 
     const jwt = await api(
       'GET',
