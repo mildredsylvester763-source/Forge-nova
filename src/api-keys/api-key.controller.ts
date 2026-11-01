@@ -110,6 +110,22 @@ export class GenapiController {
   }
 
   /**
+   * Key-authenticated organization profile. Grounded in the GitHub
+   * get-an-organization REST surface, where the profile read is a
+   * first-class endpoint and a fine-grained token with organization
+   * access reads the profile without any extra permissions: the
+   * profile mirrors the organization fields of the JWT organization
+   * listing exactly through the shared profile select, the key IS
+   * the tenant bound so there is no path parameter to probe, and
+   * reads never write audit rows.
+   */
+  @Get('organization')
+  @RequireScopes('READ_ORGANIZATION')
+  getOrganization(@Req() request: KeyedRequest) {
+    return this.organizations.getOrganizationProfileForKey(request.apiKey!);
+  }
+
+  /**
    * Key-authenticated organization audit trail. Grounded in the GitHub
    * audit log REST surface, where reading audit data needs a dedicated
    * read permission and the trail comes back newest first: the listing
