@@ -331,7 +331,7 @@ export class WebhookService {
               ...(hasUrl ? { url: dto.url! } : {}),
               ...(hasSubscriptions ? { eventSubscriptions: subscriptions! } : {}),
               ...(hasActive ? { active: dto.active! } : {}),
-            },
+            }),
           },
         });
         return endpoint!;
