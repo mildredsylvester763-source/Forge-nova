@@ -252,6 +252,35 @@ export class FileService {
     });
   }
 
+  /**
+   * Key-authenticated revision history. The GitHub commit listing
+   * keeps file history readable with nothing more than read access,
+   * newest first, so the keyed revision view sits behind
+   * READ_APPLICATIONS, stays readable on archived applications, keeps
+   * showing deleted files, and mirrors the JWT revision listing
+   * exactly. The tenant bound is the organization.
+   */
+  async revisionsForKey(key: AuthenticatedApiKey, applicationId: string, fileId: string) {
+    await this.access.requireReadableApplicationInOrganization(key.organizationId, applicationId);
+    const file = await this.prisma.applicationFile.findFirst({
+      where: { id: fileId, applicationId },
+      select: { id: true },
+    });
+    if (!file) throw new NotFoundException('Application file not found.');
+    return this.prisma.fileRevision.findMany({
+      where: { fileId },
+      select: {
+        id: true,
+        revision: true,
+        contentHash: true,
+        isDeleted: true,
+        createdBy: true,
+        createdAt: true,
+      },
+      orderBy: { revision: 'desc' },
+    });
+  }
+
   async restore(
     userId: string,
     applicationId: string,
@@ -260,6 +289,48 @@ export class FileService {
     expectedCurrentRevision: number,
   ) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.restoreAsActor(
+      { kind: 'user', userId },
+      applicationId,
+      fileId,
+      targetRevision,
+      expectedCurrentRevision,
+    );
+  }
+
+  /**
+   * Key-authenticated file restore. Vercel instant rollback and the
+   * GitHub contents update both model a restore as a fresh write on
+   * top of history, so a keyed restore mints a new revision instead
+   * of rewriting one. The writable tenant bound refuses foreign,
+   * missing, and archived applications with one uniform 404 and the
+   * attribution lands on the key creator when that user still exists.
+   */
+  async restoreForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    fileId: string,
+    targetRevision: number,
+    expectedCurrentRevision: number,
+  ) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    return this.restoreAsActor(
+      keyActorFromApiKey(key),
+      applicationId,
+      fileId,
+      targetRevision,
+      expectedCurrentRevision,
+    );
+  }
+
+  private async restoreAsActor(
+    actor: WriteActor,
+    applicationId: string,
+    fileId: string,
+    targetRevision: number,
+    expectedCurrentRevision: number,
+  ) {
+    const attributedUserId = actorAttribution(actor);
     try {
       return await this.prisma.$transaction(async (tx) => {
       const current = await tx.applicationFile.findFirst({
@@ -306,7 +377,7 @@ export class FileService {
           content: target.content,
           contentHash: target.contentHash,
           isDeleted: false,
-          createdBy: userId,
+          createdBy: attributedUserId,
         },
       });
       return {
@@ -333,6 +404,35 @@ export class FileService {
 
   async delete(userId: string, applicationId: string, fileId: string, expectedRevision: number) {
     await this.access.requireApplicationRole(userId, applicationId, this.access.writeRoles());
+    return this.deleteAsActor({ kind: 'user', userId }, applicationId, fileId, expectedRevision);
+  }
+
+  /**
+   * Key-authenticated file delete. The GitHub contents delete demands
+   * write permission, carries the expected state token in the request,
+   * and warns that concurrent delete requests conflict, so the keyed
+   * delete is guarded the same way: exactly one tombstone can land and
+   * the loser answers clean. The writable tenant bound refuses foreign,
+   * missing, and archived applications with one uniform 404 and the
+   * attribution lands on the key creator when that user still exists.
+   */
+  async deleteForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    fileId: string,
+    expectedRevision: number,
+  ) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    return this.deleteAsActor(keyActorFromApiKey(key), applicationId, fileId, expectedRevision);
+  }
+
+  private async deleteAsActor(
+    actor: WriteActor,
+    applicationId: string,
+    fileId: string,
+    expectedRevision: number,
+  ) {
+    const attributedUserId = actorAttribution(actor);
     try {
       return await this.prisma.$transaction(async (tx) => {
       const current = await tx.applicationFile.findFirst({
@@ -363,7 +463,7 @@ export class FileService {
           content: current.content,
           contentHash: current.contentHash,
           isDeleted: true,
-          createdBy: userId,
+          createdBy: attributedUserId,
         },
       });
       return { id: current.id, path: current.path, revision: nextRevision, deleted: true };
