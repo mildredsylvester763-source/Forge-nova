@@ -445,7 +445,7 @@ suite('GENESIS keyed integration connection flows (real app, real database, real
       api('POST', '/genapi/connections/' + id + '/delete', {}, connKey.key),
       api('POST', '/genapi/connections/' + id + '/delete', {}, connKey.key),
     ]);
-    expect(sortedStatuses(raced)).toEqual([200, 404]);
+    expect(sortedStatuses(raced)).toEqual([201, 404]);
 
     expect(await prisma.integration.count({ where: { id } })).toBe(0);
     expect(await prisma.auditEvent.count({ where: { organizationId, action: 'integration.connection.delete', resourceId: id } })).toBe(1);
@@ -461,7 +461,7 @@ suite('GENESIS keyed integration connection flows (real app, real database, real
     const jwtId = (jwtCreated.body as { id: string }).id;
 
     const keyedDelete = await api('POST', '/genapi/connections/' + jwtId + '/delete', {}, connKey.key);
-    expect(keyedDelete.status).toBe(200);
+    expect(keyedDelete.status).toBe(201);
     expect((keyedDelete.body as { deleted: boolean; connectionId: string })).toEqual({ deleted: true, connectionId: jwtId });
 
     const keyCreated = await keyedCreateConnection('notion', 'notion-cross-keyed', { accessToken: 'notion-cross-keyed-value' }, connKey.key);
