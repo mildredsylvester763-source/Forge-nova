@@ -177,7 +177,7 @@ suite('GENESIS keyed organization profile flows (real app, real database)', () =
     revokedKey = await createKey(hank.tokens.accessToken, organizationId, 'Revoked', ['READ_ORGANIZATION']);
     irisReaderKey = await createKey(iris.tokens.accessToken, foreignOrganizationId, 'Iris Reader', ['READ_ORGANIZATION']);
 
-    const second = await api('POST', '/genapi/workspaces', { name: 'Second Space' }, writerKey.key);
+    const second = await api('POST', '/genapi/workspaces', { name: 'Second Space', organizationId }, writerKey.key);
     expect(second.status).toBe(201);
   });
 
@@ -196,7 +196,7 @@ suite('GENESIS keyed organization profile flows (real app, real database)', () =
     expect(Object.keys(row).sort()).toEqual(['_count', 'createdAt', 'id', 'name', 'slug']);
     expect(Object.keys(row._count).sort()).toEqual(['memberships', 'workspaces']);
     expect(row.id).toBe(organizationId);
-    expect(row.name).toBe('Personal Workspace');
+    expect(row.name).toBe('hank\'s Organization');
     expect(typeof row.slug).toBe('string');
     expect(row.slug.length).toBeGreaterThan(0);
     expect(row._count.memberships).toBe(1);
@@ -263,7 +263,7 @@ suite('GENESIS keyed organization profile flows (real app, real database)', () =
     expect(first.status).toBe(200);
     const beforeRow = first.body as unknown as { _count: { memberships: number; workspaces: number } };
 
-    const third = await api('POST', '/genapi/workspaces', { name: 'Third Space' }, writerKey.key);
+    const third = await api('POST', '/genapi/workspaces', { name: 'Third Space', organizationId }, writerKey.key);
     expect(third.status).toBe(201);
 
     const second = await api('GET', '/genapi/organization', undefined, readerKey.key);
@@ -296,7 +296,7 @@ suite('GENESIS keyed organization profile flows (real app, real database)', () =
 
     const raced = await Promise.all([
       api('GET', '/genapi/organization', undefined, readerKey.key),
-      api('POST', '/genapi/workspaces', { name: 'Raced Space' }, writerKey.key),
+      api('POST', '/genapi/workspaces', { name: 'Raced Space', organizationId }, writerKey.key),
     ]);
     expect(raced[0].status).toBe(200);
     expect(raced[1].status).toBe(201);
