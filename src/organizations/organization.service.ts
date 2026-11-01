@@ -8,6 +8,12 @@ import {
 import { MembershipRole, Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
+import {
+  WriteActor,
+  actorAttribution,
+  actorAuditMetadata,
+  keyActorFromApiKey,
+} from '../api-keys/engine/api-key-policy';
 import { AccessControlService } from '../authorization/access-control.service';
 import { PrismaService } from '../database/prisma.service';
 import { AddMemberDto } from './dto/add-member.dto';
@@ -171,6 +177,31 @@ export class OrganizationService {
 
   async addMember(userId: string, organizationId: string, dto: AddMemberDto) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+    return this.addMemberToOrganization({ kind: 'user', userId }, organizationId, dto);
+  }
+
+  /**
+   * Key-authenticated member add. Grounded in the GitHub add-or-update
+   * organization membership surface, where managing membership runs
+   * behind the Members organization write permission and a token never
+   * grants more access than its owner: keys are minted only by
+   * organization admins, so a WRITE_ORGANIZATION key is an
+   * admin-delegated add bounded to the key organization, and the landed
+   * add writes exactly one audit row stamped via genapi with the
+   * acting key.
+   */
+  async addMemberForKey(key: AuthenticatedApiKey, dto: AddMemberDto) {
+    return this.addMemberToOrganization(keyActorFromApiKey(key), key.organizationId, dto);
+  }
+
+  /**
+   * The one add core shared by the JWT admin route and the genapi key
+   * route, so the two surfaces can never drift apart: the same owner
+   * role refusal, the same active-account lookup, the same single
+   * clean 409 on a concurrent duplicate add, and the same single
+   * audit row.
+   */
+  private async addMemberToOrganization(actor: WriteActor, organizationId: string, dto: AddMemberDto) {
     if (dto.role === MembershipRole.OWNER) {
       throw new BadRequestException('Owner assignment requires the dedicated ownership-transfer workflow.');
     }
@@ -199,13 +230,13 @@ export class OrganizationService {
 
         await tx.auditEvent.create({
           data: {
-            actorUserId: userId,
+            actorUserId: actorAttribution(actor),
             organizationId,
             action: 'organization.member.add',
             resourceType: 'membership',
             resourceId: membership.id,
             outcome: 'SUCCESS',
-            metadata: { role: dto.role },
+            metadata: actorAuditMetadata(actor, { role: dto.role }),
           },
         });
         return membership;
@@ -225,6 +256,44 @@ export class OrganizationService {
     dto: ChangeMemberRoleDto,
   ) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+    return this.changeMemberRoleForActor({ kind: 'user', userId }, organizationId, membershipId, dto);
+  }
+
+  /**
+   * Key-authenticated member role change. Grounded in the GitHub
+   * membership update behind the Members organization write
+   * permission: keys are minted only by organization admins, so a
+   * WRITE_ORGANIZATION key is an admin-delegated role change bounded
+   * to the key organization. Foreign and unknown membership ids answer
+   * one uniform 404, the policy engine decides exactly as for the JWT
+   * route, and the landed change writes exactly one audit row stamped
+   * via genapi with the acting key.
+   */
+  async changeMemberRoleForKey(
+    key: AuthenticatedApiKey,
+    membershipId: string,
+    dto: ChangeMemberRoleDto,
+  ) {
+    return this.changeMemberRoleForActor(
+      keyActorFromApiKey(key),
+      key.organizationId,
+      membershipId,
+      dto,
+    );
+  }
+
+  /**
+   * The one role-change core shared by the JWT admin route and the
+   * genapi key route, so the two surfaces can never drift apart: the
+   * same org-bound membership lookup, the same owner-count policy
+   * decision, and the same single audit row.
+   */
+  private async changeMemberRoleForActor(
+    actor: WriteActor,
+    organizationId: string,
+    membershipId: string,
+    dto: ChangeMemberRoleDto,
+  ) {
     const membership = await this.prisma.membership.findUnique({
       where: { id: membershipId },
       select: { id: true, userId: true, role: true, organizationId: true },
@@ -253,13 +322,13 @@ export class OrganizationService {
     });
     await this.prisma.auditEvent.create({
       data: {
-        actorUserId: userId,
+        actorUserId: actorAttribution(actor),
         organizationId,
         action: 'organization.member.role.change',
         resourceType: 'membership',
         resourceId: membershipId,
         outcome: 'SUCCESS',
-        metadata: { previousRole: membership.role, newRole: dto.role },
+        metadata: actorAuditMetadata(actor, { previousRole: membership.role, newRole: dto.role }),
       },
     });
     return updated;
@@ -267,6 +336,35 @@ export class OrganizationService {
 
   async removeMember(userId: string, organizationId: string, membershipId: string) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+    return this.removeMemberForActor({ kind: 'user', userId }, organizationId, membershipId);
+  }
+
+  /**
+   * Key-authenticated member removal. Grounded in the GitHub remove an
+   * organization member surface behind the Members organization write
+   * permission: keys are minted only by organization admins, so a
+   * WRITE_ORGANIZATION key is an admin-delegated removal bounded to the
+   * key organization. Foreign and unknown membership ids answer one
+   * uniform 404, the owner-protection policy decides exactly as for
+   * the JWT route, and the guarded delete hands racing removals
+   * exactly one clean outcome.
+   */
+  async removeMemberForKey(key: AuthenticatedApiKey, membershipId: string) {
+    return this.removeMemberForActor(keyActorFromApiKey(key), key.organizationId, membershipId);
+  }
+
+  /**
+   * The one removal core shared by the JWT admin route and the genapi
+   * key route, so the two surfaces can never drift apart: the same
+   * org-bound lookup, the same owner-protection refusal, and the same
+   * guarded delete that hands racing callers exactly one clean
+   * outcome and exactly one audit row.
+   */
+  private async removeMemberForActor(
+    actor: WriteActor,
+    organizationId: string,
+    membershipId: string,
+  ) {
     const membership = await this.prisma.membership.findUnique({
       where: { id: membershipId },
       select: { id: true, userId: true, role: true, organizationId: true },
@@ -289,27 +387,74 @@ export class OrganizationService {
     }
     await this.prisma.auditEvent.create({
       data: {
-        actorUserId: userId,
+        actorUserId: actorAttribution(actor),
         organizationId,
         action: 'organization.member.remove',
         resourceType: 'membership',
         resourceId: membershipId,
         outcome: 'SUCCESS',
-        metadata: { removedUserId: membership.userId, role: membership.role },
+        metadata: actorAuditMetadata(actor, { removedUserId: membership.userId, role: membership.role }),
       },
     });
     return { removed: true, membershipId };
   }
 
   async transferOwnership(userId: string, organizationId: string, dto: TransferOwnershipDto) {
-    const actor = await this.prisma.membership.findFirst({
+    const ownerMembership = await this.requireOwnerMembership(userId, organizationId);
+    return this.transferOwnershipFromOwner(
+      { kind: 'user', userId },
+      ownerMembership,
+      organizationId,
+      dto,
+    );
+  }
+
+  /**
+   * Key-authenticated ownership transfer. Grounded in the GitHub
+   * organization role assignment law: ownership changes are
+   * owner-only actions, and a token never grants more access than
+   * its owner - if the owner of the token is not an organization
+   * owner the capability is absent. A key acts as its creator, so
+   * the transfer only runs while the key creator still holds OWNER
+   * in the key organization, with the same gates, messages, and
+   * audit shape as the JWT route through the one shared core.
+   */
+  async transferOwnershipForKey(key: AuthenticatedApiKey, dto: TransferOwnershipDto) {
+    const actor = keyActorFromApiKey(key);
+    const attributedUserId = actorAttribution(actor);
+    if (attributedUserId === null) {
+      throw new ForbiddenException('Only an owner can transfer ownership.');
+    }
+    const ownerMembership = await this.requireOwnerMembership(attributedUserId, key.organizationId);
+    return this.transferOwnershipFromOwner(actor, ownerMembership, key.organizationId, dto);
+  }
+
+  private async requireOwnerMembership(userId: string, organizationId: string) {
+    const ownerMembership = await this.prisma.membership.findFirst({
       where: { userId, organizationId, role: MembershipRole.OWNER },
       select: { id: true },
     });
-    if (!actor) {
+    if (!ownerMembership) {
       throw new ForbiddenException('Only an owner can transfer ownership.');
     }
+    return ownerMembership;
+  }
 
+  /**
+   * The one transfer core shared by the JWT route and the genapi key
+   * route, so the two surfaces can never drift apart: the same
+   * org-bound target lookup, the same self-transfer refusal, the same
+   * owner swap, and the same single audit row. The sitting owner
+   * membership is demoted to ADMIN so the organization always keeps
+   * exactly one owner.
+   */
+  private async transferOwnershipFromOwner(
+    actor: WriteActor,
+    ownerMembership: { id: string },
+    organizationId: string,
+    dto: TransferOwnershipDto,
+  ) {
+    const attributedUserId = actorAttribution(actor);
     return this.prisma.$transaction(async (tx) => {
       const target = await tx.membership.findUnique({
         where: { id: dto.memberId },
@@ -318,25 +463,25 @@ export class OrganizationService {
       if (!target || target.organizationId !== organizationId) {
         throw new NotFoundException('Target membership not found.');
       }
-      if (target.userId === userId) {
+      if (target.userId === attributedUserId) {
         throw new BadRequestException('You already own this organization.');
       }
       await tx.membership.update({ where: { id: target.id }, data: { role: MembershipRole.OWNER } });
-      await tx.membership.update({ where: { id: actor.id }, data: { role: MembershipRole.ADMIN } });
+      await tx.membership.update({ where: { id: ownerMembership.id }, data: { role: MembershipRole.ADMIN } });
       await tx.auditEvent.create({
         data: {
-          actorUserId: userId,
+          actorUserId: attributedUserId,
           organizationId,
           action: 'organization.ownership.transfer',
           resourceType: 'membership',
           resourceId: target.id,
           outcome: 'SUCCESS',
-          metadata: { previousOwnerId: userId, newOwnerId: target.userId },
+          metadata: actorAuditMetadata(actor, { previousOwnerId: attributedUserId, newOwnerId: target.userId }),
         },
       });
       return {
         organizationId,
-        previousOwnerId: userId,
+        previousOwnerId: attributedUserId,
         newOwnerId: target.userId,
       };
     });
