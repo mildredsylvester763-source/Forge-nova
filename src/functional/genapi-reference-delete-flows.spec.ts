@@ -416,7 +416,14 @@ suite('GENESIS genapi reference delete flows (real app, real database)', () => {
       keyedDelete(applicationAId, referenceId, writerKey.key),
       jwtDelete(applicationAId, referenceId, hank.tokens.accessToken),
     ]);
-    expect(raced.map((response) => response.status).sort()).toEqual([200, 201]);
+    // Exactly one delete can land: whichever call commits first removes
+    // the row, and the loser answers the same clean 404 it would give
+    // for an unknown reference, on either surface.
+    const statuses = raced.map((response) => response.status).sort();
+    expect([200, 201]).toContain(statuses[0]);
+    expect(statuses[1]).toBe(404);
+    const refused = raced.find((response) => response.status === 404);
+    expect((refused?.body as { message: string }).message).toBe('Reference not found.');
     expect(await referenceExists(referenceId)).toBe(false);
     expect(await deleteAuditCount(referenceId)).toBe(1);
   });
