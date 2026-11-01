@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { AccessControlService } from '../authorization/access-control.service';
+import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
 import { PrismaService } from '../database/prisma.service';
 import { CreateWebhookEndpointDto } from './dto/create-webhook-endpoint.dto';
 import { DispatchEventDto } from './dto/dispatch-event.dto';
@@ -117,6 +118,23 @@ export class WebhookService {
   /** Lists endpoints without secrets. */
   async listEndpoints(userId: string, organizationId: string) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.allRoles());
+    return this.listEndpointsCore(organizationId);
+  }
+
+  /**
+   * Key-authenticated endpoint listing. Grounded in the Stripe webhook
+   * endpoints REST surface, where the listing runs with a restricted
+   * read key, an empty organization answers an honest empty array
+   * instead of an error, and the signing secret never appears in a
+   * read. The listing mirrors the JWT surface exactly through the
+   * shared core, tenant-bounded to the key organization, and reads
+   * never write audit rows.
+   */
+  async listEndpointsForKey(key: AuthenticatedApiKey) {
+    return this.listEndpointsCore(key.organizationId);
+  }
+
+  private listEndpointsCore(organizationId: string) {
     return this.prisma.webhookEndpoint.findMany({
       where: { organizationId },
       select: ENDPOINT_SELECT,
@@ -504,6 +522,29 @@ export class WebhookService {
     status?: string,
   ) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.allRoles());
+    return this.listEndpointDeliveriesCore(organizationId, endpointId, status);
+  }
+
+  /**
+   * Key-authenticated per-endpoint delivery history, mirroring the JWT
+   * route exactly through the shared core: the same real status
+   * predicate, the same newest-first capped-at-100 rows, and one
+   * uniform 404 for foreign, cross-organization, and unknown
+   * endpoint ids. Reads never write audit rows.
+   */
+  async listEndpointDeliveriesForKey(
+    key: AuthenticatedApiKey,
+    endpointId: string,
+    status?: string,
+  ) {
+    return this.listEndpointDeliveriesCore(key.organizationId, endpointId, status);
+  }
+
+  private async listEndpointDeliveriesCore(
+    organizationId: string,
+    endpointId: string,
+    status?: string,
+  ) {
     const endpoint = await this.prisma.webhookEndpoint.findFirst({
       where: { id: endpointId, organizationId },
       select: { id: true },
@@ -539,6 +580,29 @@ export class WebhookService {
     deliveryId: string,
   ) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.allRoles());
+    return this.inspectEndpointDeliveryCore(organizationId, endpointId, deliveryId);
+  }
+
+  /**
+   * Key-authenticated single delivery inspection, mirroring the JWT
+   * route exactly through the shared core: the payload and the
+   * recorded error stay part of the honest delivery record, and the
+   * delivery must belong to the named endpoint. Reads never write
+   * audit rows.
+   */
+  async inspectEndpointDeliveryForKey(
+    key: AuthenticatedApiKey,
+    endpointId: string,
+    deliveryId: string,
+  ) {
+    return this.inspectEndpointDeliveryCore(key.organizationId, endpointId, deliveryId);
+  }
+
+  private async inspectEndpointDeliveryCore(
+    organizationId: string,
+    endpointId: string,
+    deliveryId: string,
+  ) {
     const endpoint = await this.prisma.webhookEndpoint.findFirst({
       where: { id: endpointId, organizationId },
       select: { id: true },
