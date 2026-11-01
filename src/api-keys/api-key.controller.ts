@@ -28,6 +28,7 @@ import { DispatchEventDto } from '../integrations/dto/dispatch-event.dto';
 import { UpdateWebhookEndpointDto } from '../integrations/dto/update-webhook-endpoint.dto';
 import { WorkspaceService } from '../workspaces/workspace.service';
 import { CreateWorkspaceDto } from '../workspaces/dto/create-workspace.dto';
+import { UpdateWorkspaceDto } from '../workspaces/dto/update-workspace.dto';
 import { ProjectService } from '../projects/project.service';
 import { CreateProjectDto } from '../projects/dto/create-project.dto';
 import { UpdateProjectDto } from '../projects/dto/update-project.dto';
@@ -322,6 +323,27 @@ export class GenapiController {
   @RequireScopes('WRITE_ORGANIZATION')
   createWorkspace(@Req() request: KeyedRequest, @Body() dto: CreateWorkspaceDto) {
     return this.workspaces.createForKey(request.apiKey!, dto);
+  }
+
+  /**
+   * Key-authenticated workspace rename. Grounded in the GitHub team
+   * update behind the Members organization write permission: keys are
+   * minted only by organization admins, so a WRITE_ORGANIZATION key is
+   * an admin-delegated rename, a workspace outside the key
+   * organization answers the same uniform 404 as an unknown one, the
+   * name carries the same trim and length law as the create, and the
+   * slug stays stable because it is the immutable server-derived
+   * identifier. There is no audit row because the JWT rename writes
+   * none.
+   */
+  @Post('workspaces/:workspaceId/update')
+  @RequireScopes('WRITE_ORGANIZATION')
+  updateWorkspace(
+    @Req() request: KeyedRequest,
+    @Param('workspaceId') workspaceId: string,
+    @Body() dto: UpdateWorkspaceDto,
+  ) {
+    return this.workspaces.updateForKey(request.apiKey!, workspaceId, dto);
   }
 
   /**
