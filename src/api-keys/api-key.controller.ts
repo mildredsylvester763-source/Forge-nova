@@ -18,6 +18,8 @@ import { CreateReferenceDto } from '../references/dto/create-reference.dto';
 import { ReferencesService } from '../references/references.service';
 import { JobQueueService } from '../execution/job-queue.service';
 import { WorkGraphService } from '../work-graphs/work-graph.service';
+import { CreateWorkGraphDto } from '../work-graphs/dto/create-work-graph.dto';
+import { CreateWorkNodeDto } from '../work-graphs/dto/create-work-node.dto';
 import { DeploymentService } from '../deployments/deployment.service';
 import { OrganizationService } from '../organizations/organization.service';
 import { WorkspaceService } from '../workspaces/workspace.service';
@@ -263,6 +265,48 @@ export class GenapiController {
     @Param('graphId') graphId: string,
   ) {
     return this.graphs.validateForKey(request.apiKey!, applicationId, graphId);
+  }
+
+  /**
+   * Key-authenticated work graph create. Grounded in the market
+   * leaders: the Vercel project create builds a new resource straight
+   * from a Bearer access token with only the name required, and the
+   * GitHub project create runs behind write permission inside the
+   * parent scope. WRITE_APPLICATIONS grants the create; the writable
+   * tenant bound refuses foreign, missing, and archived applications
+   * with one uniform 404; and the response mirrors the JWT create
+   * exactly, seeded with the same original user request node, with
+   * no audit row because the JWT create writes none either.
+   */
+  @Post('applications/:applicationId/work-graphs')
+  @RequireScopes('WRITE_APPLICATIONS')
+  createWorkGraph(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Body() dto: CreateWorkGraphDto,
+  ) {
+    return this.graphs.createForKey(request.apiKey!, applicationId, dto);
+  }
+
+  /**
+   * Key-authenticated work node create. Grounded in the GitHub
+   * deployment status create: a token with push access adds child
+   * records to a parent resource behind a write permission.
+   * WRITE_APPLICATIONS grants the add; the writable tenant bound
+   * refuses foreign, missing, and archived applications with one
+   * uniform 404; the graph ownership check answers cross-application
+   * and unknown graph ids with the same uniform 404; and the honest
+   * 409s and 400s mirror the JWT addNode exactly.
+   */
+  @Post('applications/:applicationId/work-graphs/:graphId/nodes')
+  @RequireScopes('WRITE_APPLICATIONS')
+  addWorkGraphNode(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('graphId') graphId: string,
+    @Body() dto: CreateWorkNodeDto,
+  ) {
+    return this.graphs.addNodeForKey(request.apiKey!, applicationId, graphId, dto);
   }
 
   /**
