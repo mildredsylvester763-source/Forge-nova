@@ -8,6 +8,7 @@ import {
   JobStatus,
   JobType,
   Prisma,
+  WorkGraphStatus,
 } from '@prisma/client';
 import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
 import {
@@ -24,6 +25,8 @@ const MIN_LEASE_MS = 10_000;
 const MAX_LEASE_MS = 300_000;
 const MAX_JOB_INPUT_BYTES = 262_144;
 const MAX_JOB_RESULT_BYTES = 262_144;
+const PLAN_CONVERGE_ATTEMPTS = 10;
+const PLAN_CONVERGE_DELAY_MS = 25;
 
 @Injectable()
 export class JobQueueService {
@@ -542,6 +545,99 @@ export class JobQueueService {
       select: { id: true, applicationId: true, status: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /**
+   * The one work-graph planning core shared by the JWT plan route and
+   * the genapi key plan route. Grounded in the market leaders: the
+   * GitHub workflow dispatch event triggers a workflow run behind
+   * the Actions write permission, never read, and the OpenAI thread
+   * run create starts an async run on a parent resource straight
+   * from an API key with one active run per thread - exactly the one
+   * active plan job per graph law here. The plan intent is the graph
+   * version, not the caller who pressed the button, so the
+   * idempotency key is derived server-side and every racing trigger
+   * converges on the winning job: a replay answers the active job,
+   * a non-draft graph answers one honest 409, and a lost insert
+   * race rechecks the active job instead of surfacing the raw
+   * conflict.
+   */
+  async enqueuePlanForGraph(
+    graph: { id: string; applicationId: string; version: number; status: string },
+    enqueue: () => Promise<{ id: string; applicationId: string; status: string; createdAt: Date }>,
+  ) {
+    const active = await this.findActiveGraphPlanJob(graph.applicationId, graph.id);
+    if (active) return active;
+
+    if (graph.status !== WorkGraphStatus.DRAFT) {
+      throw new ConflictException('Only draft work graphs can be queued for planning.');
+    }
+
+    try {
+      return await enqueue();
+    } catch (error) {
+      if (!(error instanceof ConflictException)) throw error;
+      for (let attempt = 0; attempt < PLAN_CONVERGE_ATTEMPTS; attempt += 1) {
+        const raced = await this.findActiveGraphPlanJob(graph.applicationId, graph.id);
+        if (raced) return raced;
+        await new Promise((resolve) => setTimeout(resolve, PLAN_CONVERGE_DELAY_MS));
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * The JWT plan path: role checks stay with the plan route, the job
+   * input names the requesting member because the worker executes
+   * the plan as that user, and the one core owns replay, the draft
+   * gate, and convergence so the two surfaces can never drift.
+   */
+  async enqueueGraphPlan(
+    userId: string,
+    graph: { id: string; applicationId: string; version: number; status: string },
+  ) {
+    return this.enqueuePlanForGraph(graph, () =>
+      this.enqueue(
+        userId,
+        graph.applicationId,
+        JobType.REQUIREMENTS_ANALYSIS,
+        {
+          task: 'PLAN_WORK_GRAPH',
+          graphId: graph.id,
+          requestedBy: userId,
+        },
+        'workgraph-plan:' + graph.id + ':v' + graph.version,
+      ),
+    );
+  }
+
+  /**
+   * The genapi key plan path: the writable tenant bound lives in the
+   * keyed enqueue, the job input carries the honest key attribution
+   * and requestedBy names the key creator because the worker executes
+   * the plan as that user exactly like the JWT trigger.
+   */
+  async enqueueGraphPlanForKey(
+    key: AuthenticatedApiKey,
+    attributedUserId: string,
+    graph: { id: string; applicationId: string; version: number; status: string },
+  ) {
+    return this.enqueuePlanForGraph(graph, () =>
+      this.enqueueForKey(
+        key,
+        graph.applicationId,
+        JobType.REQUIREMENTS_ANALYSIS,
+        {
+          task: 'PLAN_WORK_GRAPH',
+          graphId: graph.id,
+          requestedBy: attributedUserId,
+          via: 'genapi',
+          apiKeyId: key.id,
+          apiKeyName: key.name,
+        },
+        'workgraph-plan:' + graph.id + ':v' + graph.version,
+      ),
+    );
   }
 
   async getForUser(userId: string, applicationId: string, jobId: string) {
