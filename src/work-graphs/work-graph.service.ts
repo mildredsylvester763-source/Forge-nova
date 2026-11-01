@@ -217,6 +217,27 @@ export class WorkGraphService {
     return this.addNodeToGraph(graph, dto);
   }
 
+  /**
+   * Key-authenticated writable graph lookup for the plan trigger. The
+   * writable tenant bound refuses foreign, missing, and archived
+   * applications with one uniform 404 and the graph ownership check
+   * answers cross-application and unknown graph ids with the same
+   * uniform 404 - exactly the bounds the keyed node add follows.
+   */
+  async getWritableGraphForKey(
+    key: AuthenticatedApiKey,
+    applicationId: string,
+    graphId: string,
+  ) {
+    await this.access.requireApplicationInOrganization(key.organizationId, applicationId);
+    const graph = await this.prisma.workGraph.findFirst({
+      where: { id: graphId, applicationId },
+      select: { id: true, applicationId: true, status: true, version: true },
+    });
+    if (!graph) throw new NotFoundException('Work graph not found.');
+    return graph;
+  }
+
   private async addNodeToGraph(graph: { id: string; status: WorkGraphStatus }, dto: CreateWorkNodeDto) {
     const editableStatuses: readonly WorkGraphStatus[] = [WorkGraphStatus.DRAFT, WorkGraphStatus.READY];
     if (!editableStatuses.includes(graph.status)) {
