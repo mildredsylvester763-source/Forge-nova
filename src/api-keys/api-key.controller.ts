@@ -27,6 +27,8 @@ import { WebhookService } from '../integrations/webhook.service';
 import { CreateWebhookEndpointDto } from '../integrations/dto/create-webhook-endpoint.dto';
 import { DispatchEventDto } from '../integrations/dto/dispatch-event.dto';
 import { UpdateWebhookEndpointDto } from '../integrations/dto/update-webhook-endpoint.dto';
+import { IntegrationService } from '../integrations/integration.service';
+import { CreateConnectionDto } from '../integrations/dto/create-connection.dto';
 import { WorkspaceService } from '../workspaces/workspace.service';
 import { CreateWorkspaceDto } from '../workspaces/dto/create-workspace.dto';
 import { UpdateWorkspaceDto } from '../workspaces/dto/update-workspace.dto';
@@ -96,6 +98,7 @@ export class GenapiController {
     private readonly deployments: DeploymentService,
     private readonly organizations: OrganizationService,
     private readonly webhooks: WebhookService,
+    private readonly integrations: IntegrationService,
     private readonly workspaces: WorkspaceService,
     private readonly projectService: ProjectService,
   ) {}
@@ -339,6 +342,85 @@ export class GenapiController {
     @Param('endpointId') endpointId: string,
   ) {
     return this.webhooks.rotateEndpointSecretForKey(request.apiKey!, endpointId);
+  }
+
+  /**
+   * Key-authenticated connector catalog. Grounded in the GitHub app
+   * catalog read: the offer is metadata only - named connectors with
+   * named credential fields - so the rows mirror the JWT catalog
+   * exactly through the shared core. The key IS the tenant bound and
+   * reads never write audit rows.
+   */
+  @Get('connectors')
+  @RequireScopes('READ_ORGANIZATION')
+  listConnectors(@Req() request: KeyedRequest) {
+    return this.integrations.listCatalogForKey(request.apiKey!);
+  }
+
+  /**
+   * Key-authenticated connection listing. Grounded in the GitHub
+   * list-installations-for-an-organization read, which needs only
+   * the organization administration read permission: the rows mirror
+   * the JWT connection listing exactly through the shared core and
+   * credential values never leave the vault. Reads never write
+   * audit rows.
+   */
+  @Get('connections')
+  @RequireScopes('READ_ORGANIZATION')
+  listConnections(@Req() request: KeyedRequest) {
+    return this.integrations.listForKey(request.apiKey!);
+  }
+
+  /**
+   * Keyed connection create. Grounded in the GitHub app installation
+   * create and the Vercel integration access token exchange: machine
+   * identities create integration connections with scoped tokens, and
+   * a token never grants more access than its owner. Keys are minted
+   * only by organization admins, so a WRITE_ORGANIZATION key is an
+   * admin-delegated create bounded to the key organization.
+   * Credentials are validated against the catalog and echoed as
+   * field names and lengths only, and the landed create writes
+   * exactly one audit row stamped via genapi with the acting key.
+   */
+  @Post('connections')
+  @RequireScopes('WRITE_ORGANIZATION')
+  createConnection(@Req() request: KeyedRequest, @Body() dto: CreateConnectionDto) {
+    return this.integrations.createForKey(request.apiKey!, dto);
+  }
+
+  /**
+   * Keyed connection test. Grounded in the market verification law:
+   * Vercel integration access tokens are verified by real requests,
+   * and GitHub installation tokens carry honest installation
+   * metadata. The keyed test performs the same REAL outbound request
+   * with the same honest succeeded, failed, or unreachable outcome as
+   * the JWT route, foreign and unknown ids answer one uniform 404,
+   * and the audit row is stamped via genapi with the acting key.
+   */
+  @Post('connections/:connectionId/test')
+  @RequireScopes('WRITE_ORGANIZATION')
+  testConnection(
+    @Req() request: KeyedRequest,
+    @Param('connectionId') connectionId: string,
+  ) {
+    return this.integrations.testConnectionForKey(request.apiKey!, connectionId);
+  }
+
+  /**
+   * Keyed connection delete. Grounded in the GitHub installation
+   * removal behind organization administration write: a machine
+   * identity with write access may remove the integration. Racing
+   * deletes get exactly one 200 and one clean 404 through the shared
+   * guarded core, and the landed delete writes exactly one audit row
+   * stamped via genapi with the acting key.
+   */
+  @Post('connections/:connectionId/delete')
+  @RequireScopes('WRITE_ORGANIZATION')
+  deleteConnection(
+    @Req() request: KeyedRequest,
+    @Param('connectionId') connectionId: string,
+  ) {
+    return this.integrations.removeForKey(request.apiKey!, connectionId);
   }
 
   /**
