@@ -23,6 +23,7 @@ import { CreateWorkNodeDto } from '../work-graphs/dto/create-work-node.dto';
 import { DeploymentService } from '../deployments/deployment.service';
 import { OrganizationService } from '../organizations/organization.service';
 import { WebhookService } from '../integrations/webhook.service';
+import { DispatchEventDto } from '../integrations/dto/dispatch-event.dto';
 import { WorkspaceService } from '../workspaces/workspace.service';
 import { ProjectService } from '../projects/project.service';
 import { RunVerificationDto } from '../verification/dto/run-verification.dto';
@@ -68,8 +69,8 @@ export class ApiKeyAdminController {
 /**
  * The key-authenticated GENESIS API surface. Every route is tenant-
  * bounded to the organization the key belongs to and gated by a concrete scope.
- * The WRITE_APPLICATIONS scope is honored by real write endpoints
- * below; it exists nowhere else.
+ * The WRITE_APPLICATIONS and WRITE_ORGANIZATION scopes are
+ * honored by real write endpoints below; they exist nowhere else.
  */
 @Controller('genapi')
 @UseGuards(ApiKeyGuard)
@@ -170,6 +171,36 @@ export class GenapiController {
       endpointId,
       deliveryId,
     );
+  }
+
+  /**
+   * Keyed webhook dispatch, grounded in the GitHub repository dispatch
+   * event (POST /repos/{owner}/{repo}/dispatches behind the Contents
+   * write permission): a machine identity with write access triggers
+   * webhook deliveries straight from a token. Keys are minted only by
+   * organization admins, so a WRITE_ORGANIZATION key is an
+   * admin-delegated write exactly like the read delegation on the
+   * audit trail. The response mirrors the JWT dispatch shape and the
+   * audit row is stamped via genapi with the acting key.
+   */
+  @Post('webhook-dispatches')
+  @RequireScopes('WRITE_ORGANIZATION')
+  dispatchWebhookEvent(@Req() request: KeyedRequest, @Body() dto: DispatchEventDto) {
+    return this.webhooks.dispatchForKey(request.apiKey!, dto);
+  }
+
+  /**
+   * Keyed delivery retry, grounded in the GitHub webhook redelivery
+   * (the POST attempts route behind admin access): a redelivery is a
+   * write on the delivery record. The same backoff gate, the same
+   * honest 409s, the same atomic attempt claim as the JWT retry,
+   * tenant-bounded to the key organization with one uniform 404, and
+   * the audit row is stamped via genapi with the acting key.
+   */
+  @Post('webhook-deliveries/:deliveryId/retry')
+  @RequireScopes('WRITE_ORGANIZATION')
+  retryWebhookDelivery(@Req() request: KeyedRequest, @Param('deliveryId') deliveryId: string) {
+    return this.webhooks.retryForKey(request.apiKey!, deliveryId);
   }
 
   /**
