@@ -365,7 +365,7 @@ suite('GENESIS genapi file lifecycle flows (real app, real database)', () => {
     expect(jwtUpdated.status).toBe(201);
 
     const jwt = await restoreJwt(applicationAId, jwtFileId, 1, 2);
-    expect(jwt.status).toBe(200);
+    expect(jwt.status).toBe(201);
     expect(Object.keys(jwt.body).sort()).toEqual(Object.keys(keyed.body).sort());
     expect((jwt.body as { restoredFromRevision: number }).restoredFromRevision).toBe(1);
     expect((jwt.body as { revision: number }).revision).toBe(3);
