@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { JobType } from '@prisma/client';
 import { Request } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -39,9 +40,11 @@ import { ProjectService } from '../projects/project.service';
 import { CreateProjectDto } from '../projects/dto/create-project.dto';
 import { UpdateProjectDto } from '../projects/dto/update-project.dto';
 import { RunVerificationDto } from '../verification/dto/run-verification.dto';
+import { GenerateSourceDto } from '../generation/dto/generate-source.dto';
 import { ApiKeyGuard, AuthenticatedApiKey, RequireScopes } from './api-key.guard';
 import { ApiKeyService } from './api-key.service';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
+import { actorAttribution, keyActorFromApiKey } from './engine/api-key-policy';
 
 type AuthenticatedRequest = Request & { user: AuthenticatedUser };
 type KeyedRequest = Request & { apiKey?: AuthenticatedApiKey };
@@ -1269,5 +1272,57 @@ export class GenapiController {
     @Param('jobId') jobId: string,
   ) {
     return this.jobs.cancelForKey(request.apiKey!, applicationId, jobId);
+  }
+
+  /**
+   * Key-authenticated AI source generation trigger. Grounded in the
+   * market leaders: the OpenAI create-a-model-response and the
+   * Anthropic create-a-message both run generation straight from an
+   * API key, and an OpenAI key is bounded to its organization and
+   * project the way this key is bounded to its organization, with
+   * revocation stopping generation instantly. WRITE_APPLICATIONS
+   * grants the trigger; the writable tenant bound refuses foreign,
+   * missing, and archived applications with one uniform 404; the job
+   * input carries the honest key attribution (via genapi with the
+   * acting key id and name) and requestedBy names the key creator
+   * because the job executes as that user exactly like the JWT
+   * trigger; a key whose creator no longer exists answers the named
+   * 409 instead of enqueuing a job that could never run; and the
+   * Stripe idempotency law is the one shared core, so a double-tap
+   * converges on the same job. There is no audit row because the JWT
+   * trigger writes none either - the job row is the record.
+   */
+  @Post('applications/:applicationId/generate')
+  @RequireScopes('WRITE_APPLICATIONS')
+  async generateSource(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Body() dto: GenerateSourceDto,
+  ) {
+    const key = request.apiKey!;
+    const attributedUserId = actorAttribution(keyActorFromApiKey(key));
+    if (attributedUserId === null) {
+      throw new ConflictException('The key creator no longer exists.');
+    }
+    const job = await this.jobs.enqueueForKey(
+      key,
+      applicationId,
+      JobType.CODE_GENERATION,
+      {
+        task: 'GENERATE_SOURCE_FILES',
+        prompt: dto.prompt.trim(),
+        requestedBy: attributedUserId,
+        via: 'genapi',
+        apiKeyId: key.id,
+        apiKeyName: key.name,
+      },
+      dto.idempotencyKey,
+    );
+    return {
+      jobId: job.id,
+      applicationId,
+      status: job.status,
+      createdAt: job.createdAt,
+    };
   }
 }
