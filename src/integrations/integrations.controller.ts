@@ -120,6 +120,26 @@ export class WebhooksController {
     return this.webhooks.updateEndpoint(request.user.sub, organizationId, endpointId, dto);
   }
 
+  /**
+   * Ping. Grounded in the GitHub org webhook ping, which needs the
+   * Webhooks write permission and pushes one ping event to the
+   * endpoint as a confirmation that it is configured and reachable:
+   * a ping goes to the named endpoint regardless of subscriptions
+   * and regardless of the active flag, lands exactly one honest
+   * delivery row with one signed attempt, and answers with the same
+   * attempt shape as dispatch and retry. Unknown and foreign
+   * endpoints answer the same uniform 404 as the other endpoint
+   * routes.
+   */
+  @Post('endpoints/:endpointId/ping')
+  pingEndpoint(
+    @Req() request: AuthenticatedRequest,
+    @Param('organizationId') organizationId: string,
+    @Param('endpointId') endpointId: string,
+  ) {
+    return this.webhooks.pingEndpoint(request.user.sub, organizationId, endpointId);
+  }
+
   @Post('dispatch')
   dispatch(
     @Req() request: AuthenticatedRequest,
