@@ -28,6 +28,8 @@ import { DispatchEventDto } from '../integrations/dto/dispatch-event.dto';
 import { UpdateWebhookEndpointDto } from '../integrations/dto/update-webhook-endpoint.dto';
 import { WorkspaceService } from '../workspaces/workspace.service';
 import { ProjectService } from '../projects/project.service';
+import { CreateProjectDto } from '../projects/dto/create-project.dto';
+import { UpdateProjectDto } from '../projects/dto/update-project.dto';
 import { RunVerificationDto } from '../verification/dto/run-verification.dto';
 import { ApiKeyGuard, AuthenticatedApiKey, RequireScopes } from './api-key.guard';
 import { ApiKeyService } from './api-key.service';
@@ -71,8 +73,9 @@ export class ApiKeyAdminController {
 /**
  * The key-authenticated GENESIS API surface. Every route is tenant-
  * bounded to the organization the key belongs to and gated by a concrete scope.
- * The WRITE_APPLICATIONS and WRITE_ORGANIZATION scopes are
- * honored by real write endpoints below; they exist nowhere else.
+ * The WRITE_APPLICATIONS, WRITE_ORGANIZATION, and WRITE_PROJECTS
+ * scopes are honored by real write endpoints below; they exist nowhere
+ * else.
  */
 @Controller('genapi')
 @UseGuards(ApiKeyGuard)
@@ -332,6 +335,74 @@ export class GenapiController {
     @Param('projectId') projectId: string,
   ) {
     return this.projectService.getForKey(request.apiKey!, projectId);
+  }
+
+  /**
+   * Key-authenticated project create. Grounded in the GitHub Projects
+   * REST surface, where creating an organization project needs the
+   * Projects write permission: the workspace must belong to the key
+   * organization, the created row mirrors the JWT create exactly, and
+   * the owner is the key creator because GitHub ties tokens to the
+   * user who generated them. There is no audit row because the JWT
+   * create writes none.
+   */
+  @Post('workspaces/:workspaceId/projects')
+  @RequireScopes('WRITE_PROJECTS')
+  createProject(
+    @Req() request: KeyedRequest,
+    @Param('workspaceId') workspaceId: string,
+    @Body() dto: CreateProjectDto,
+  ) {
+    return this.projectService.createForKey(request.apiKey!, workspaceId, dto);
+  }
+
+  /**
+   * Key-authenticated project partial update. Grounded in the GitHub
+   * project update behind the Projects write permission: only the
+   * fields sent change, the writable tenant bound refuses foreign,
+   * missing, and archived projects with one uniform 404, and there is
+   * no audit row because the JWT update writes none.
+   */
+  @Post('projects/:projectId/update')
+  @RequireScopes('WRITE_PROJECTS')
+  updateProject(
+    @Req() request: KeyedRequest,
+    @Param('projectId') projectId: string,
+    @Body() dto: UpdateProjectDto,
+  ) {
+    return this.projectService.updateForKey(request.apiKey!, projectId, dto);
+  }
+
+  /**
+   * Key-authenticated project archive. Grounded in the GitHub project
+   * state update (open and closed) behind the Projects write
+   * permission: the writable tenant bound refuses foreign, missing,
+   * and already archived projects with one uniform 404, and there is
+   * no audit row because the JWT archive writes none.
+   */
+  @Post('projects/:projectId/archive')
+  @RequireScopes('WRITE_PROJECTS')
+  archiveProject(
+    @Req() request: KeyedRequest,
+    @Param('projectId') projectId: string,
+  ) {
+    return this.projectService.archiveForKey(request.apiKey!, projectId);
+  }
+
+  /**
+   * Key-authenticated project restore. Grounded in the GitHub project
+   * reopen through the write surface: the archived project must live
+   * in the key organization, the restore claim is atomic so racing
+   * restores end exactly one way, and the landed restore writes
+   * exactly one attributed audit row stamped via genapi.
+   */
+  @Post('projects/:projectId/restore')
+  @RequireScopes('WRITE_PROJECTS')
+  restoreProject(
+    @Req() request: KeyedRequest,
+    @Param('projectId') projectId: string,
+  ) {
+    return this.projectService.restoreForKey(request.apiKey!, projectId);
   }
 
   /**
