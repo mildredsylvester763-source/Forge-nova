@@ -392,6 +392,31 @@ export class GenapiController {
   }
 
   /**
+   * Key-authenticated conversation unarchive. Grounded in the
+   * GitHub conversation unlock: write access is required to unlock
+   * an issue, and repeat unlocks succeed. WRITE_APPLICATIONS grants
+   * the unarchive; the writable tenant bound refuses foreign,
+   * missing, and archived applications with one uniform 404; the
+   * conversation ownership check answers cross-application and
+   * unknown ids with the same uniform 404; and the response mirrors
+   * the JWT unarchive exactly, with no audit row because the JWT
+   * unarchive writes none.
+   */
+  @Post('applications/:applicationId/conversations/:conversationId/unarchive')
+  @RequireScopes('WRITE_APPLICATIONS')
+  unarchiveConversation(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('conversationId') conversationId: string,
+  ) {
+    return this.conversations.unarchiveForKey(
+      request.apiKey!,
+      applicationId,
+      conversationId,
+    );
+  }
+
+  /**
    * Key-authenticated reference listing, mirroring the JWT shape exactly
    * (newest first, the honest window of 100, full documents included).
    */
