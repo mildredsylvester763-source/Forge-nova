@@ -298,7 +298,9 @@ export class IntegrationService {
    * outcome recording, and the same single audit row per test. A
    * keyed test attributes to the key creator and stamps the acting
    * key into the trail; a user test keeps its existing row shape
-   * exactly.
+   * exactly. The request honors the method and body the catalog
+   * pins, and a JSON body that reports ok false is a failure even
+   * over HTTP 200, because the Slack Web API answers that way.
    */
   private async testForActor(
     actor: WriteActor,
@@ -321,14 +323,33 @@ export class IntegrationService {
     const timer = setTimeout(() => controller.abort(), OUTBOUND_TIMEOUT_MS);
     try {
       const response = await fetch(request.url, {
-        method: 'GET',
+        method: request.method ?? 'GET',
         headers: request.headers,
+        body: request.body,
         signal: controller.signal,
       });
       statusCode = response.status;
-      if (response.ok) {
+      // The Slack Web API answers HTTP 200 even when the token is bad,
+      // so whenever the remote speaks JSON an ok false body outweighs
+      // the status line. The recorded outcome stays honest either way.
+      let remoteReportedFailure = false;
+      const text = await response.text();
+      if (response.ok && text.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(text) as { ok?: unknown };
+          if (parsed && parsed.ok === false) {
+            remoteReportedFailure = true;
+          }
+        } catch {
+          remoteReportedFailure = false;
+        }
+      }
+      if (response.ok && !remoteReportedFailure) {
         testStatus = 'succeeded';
         detail = 'Remote answered with HTTP ' + response.status + '.';
+      } else if (response.ok && remoteReportedFailure) {
+        testStatus = 'failed';
+        detail = 'Remote answered with HTTP ' + response.status + ' but reported ok false.';
       } else {
         testStatus = 'failed';
         detail = 'Remote answered with HTTP ' + response.status + '.';
