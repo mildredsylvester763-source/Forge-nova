@@ -404,7 +404,7 @@ suite('GENESIS connector expansion flows (real app, real database, real receiver
   });
 
   it('records honest outcomes for the real providers over real outbound requests', async () => {
-    const cases = [
+    const cases: Array<{ connectorId: string; name: string; credentials: Record<string, string> }> = [
       { connectorId: 'slack', name: 'slack-honest', credentials: { accessToken: 'xoxb-fake-expansion-token-value' } },
       { connectorId: 'linear', name: 'linear-honest', credentials: { apiKey: 'lin_api_fake_expansion_key_value' } },
       { connectorId: 'stripe', name: 'stripe-honest', credentials: { secretKey: 'sk_test_fake_expansion_key_value' } },
