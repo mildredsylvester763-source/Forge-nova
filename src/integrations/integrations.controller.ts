@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -6,6 +6,7 @@ import { CreateConnectionDto } from './dto/create-connection.dto';
 import { CreateWebhookEndpointDto } from './dto/create-webhook-endpoint.dto';
 import { DispatchEventDto } from './dto/dispatch-event.dto';
 import { IntegrationService } from './integration.service';
+import { UpdateWebhookEndpointDto } from './dto/update-webhook-endpoint.dto';
 import { WebhookService } from './webhook.service';
 
 type AuthenticatedRequest = Request & { user: AuthenticatedUser };
@@ -98,6 +99,25 @@ export class WebhooksController {
     @Param('endpointId') endpointId: string,
   ) {
     return this.webhooks.removeEndpoint(request.user.sub, organizationId, endpointId);
+  }
+
+  /**
+   * Endpoint update. Grounded in the GitHub webhook update, which
+   * needs the Webhooks write permission, and the Stripe webhook
+   * endpoint update: a PATCH is a partial write - only the fields
+   * sent change and everything else stays untouched. The signing
+   * secret is never updatable, an empty body is an honest no-op,
+   * and foreign and unknown endpoints answer the same uniform 404
+   * as the delete route.
+   */
+  @Patch('endpoints/:endpointId')
+  updateEndpoint(
+    @Req() request: AuthenticatedRequest,
+    @Param('organizationId') organizationId: string,
+    @Param('endpointId') endpointId: string,
+    @Body() dto: UpdateWebhookEndpointDto,
+  ) {
+    return this.webhooks.updateEndpoint(request.user.sub, organizationId, endpointId, dto);
   }
 
   @Post('dispatch')
