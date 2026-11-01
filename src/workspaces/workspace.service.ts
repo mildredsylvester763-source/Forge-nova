@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
@@ -53,13 +53,36 @@ export class WorkspaceService {
       dto.organizationId,
       this.access.adminRoles(),
     );
+    return this.persistWorkspace(dto);
+  }
+
+  /**
+   * Key-authenticated workspace create. Grounded in the GitHub team
+   * create REST surface: creating an organization grouping structure
+   * needs the organization-level write permission, the team is
+   * always created inside the organization the token belongs to, and
+   * GitHub derives the team slug from the name server-side. Keys are
+   * minted only by organization admins, so a WRITE_ORGANIZATION key
+   * is an admin-delegated create, and a body organization other
+   * than the key organization answers the same uniform 404 the JWT
+   * admin gate gives for a foreign organization. There is no audit
+   * row because the JWT create writes none.
+   */
+  async createForKey(key: AuthenticatedApiKey, dto: CreateWorkspaceDto) {
+    if (dto.organizationId !== key.organizationId) {
+      throw new NotFoundException('Organization not found.');
+    }
+    return this.persistWorkspace(dto);
+  }
+
+  private async persistWorkspace(dto: CreateWorkspaceDto) {
     const base = dto.name
       .normalize('NFKD')
       .replace(/[^a-zA-Z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .toLowerCase()
       .slice(0, 64) || 'workspace';
-    const slug = `${base}-${randomBytes(4).toString('hex')}`;
+    const slug = base + '-' + randomBytes(4).toString('hex');
 
     try {
       return await this.prisma.workspace.create({
