@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -9,6 +9,7 @@ import { CheckpointService } from '../checkpoints/checkpoint.service';
 import { CreateCheckpointDto } from '../checkpoints/dto/create-checkpoint.dto';
 import { FileService } from '../files/file.service';
 import { WriteFileDto } from '../files/dto/write-file.dto';
+import { RestoreFileDto } from '../files/dto/restore-file.dto';
 import { VerificationService } from '../verification/verification.service';
 import { ConversationService } from '../conversations/conversation.service';
 import { CreateMessageDto } from '../conversations/dto/create-message.dto';
@@ -567,6 +568,71 @@ export class GenapiController {
     @Body() dto: WriteFileDto,
   ) {
     return this.files.writeForKey(request.apiKey!, applicationId, dto);
+  }
+
+  /**
+   * Key-authenticated file revision history. Grounded in the GitHub
+   * commit listing: file history stays readable with nothing more than
+   * read access, newest first, so the rows mirror the JWT revision
+   * listing exactly, tombstone revision included after a delete. Reads
+   * stay possible on archived applications and never write an audit
+   * row.
+   */
+  @Get('applications/:applicationId/files/:fileId/revisions')
+  @RequireScopes('READ_APPLICATIONS')
+  listFileRevisions(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('fileId') fileId: string,
+  ) {
+    return this.files.revisionsForKey(request.apiKey!, applicationId, fileId);
+  }
+
+  /**
+   * Key-authenticated file restore. Grounded in the market leaders:
+   * Vercel instant rollback repoints production without rewriting
+   * history, and the GitHub contents update needs write access plus
+   * an expected state token. WRITE_APPLICATIONS grants the restore,
+   * the revision to restore rides the path, the expected current
+   * revision rides the body exactly like the JWT route, and the
+   * response mirrors the JWT restore exactly.
+   */
+  @Post('applications/:applicationId/files/:fileId/restore/:revision')
+  @RequireScopes('WRITE_APPLICATIONS')
+  restoreFile(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('fileId') fileId: string,
+    @Param('revision', ParseIntPipe) revision: number,
+    @Body() body: RestoreFileDto,
+  ) {
+    return this.files.restoreForKey(
+      request.apiKey!,
+      applicationId,
+      fileId,
+      revision,
+      body.expectedCurrentRevision,
+    );
+  }
+
+  /**
+   * Key-authenticated file delete. Grounded in the GitHub contents
+   * delete: write permission is required and the expected state token
+   * rides the request, with concurrent deletes warned to run
+   * serially. WRITE_APPLICATIONS grants the delete, the expected
+   * revision rides the path exactly like the JWT route, and the
+   * response mirrors the JWT delete exactly: exactly one tombstone
+   * revision lands, never two, and the loser answers clean.
+   */
+  @Post('applications/:applicationId/files/:fileId/delete/revision/:expectedRevision')
+  @RequireScopes('WRITE_APPLICATIONS')
+  deleteFile(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('fileId') fileId: string,
+    @Param('expectedRevision', ParseIntPipe) expectedRevision: number,
+  ) {
+    return this.files.deleteForKey(request.apiKey!, applicationId, fileId, expectedRevision);
   }
 
   @Post('applications/:applicationId/checkpoints')
