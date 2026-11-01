@@ -12,6 +12,9 @@ export type ConnectorCategory =
   | 'DEPLOYMENT'
   | 'DESIGN_REFERENCE'
   | 'DOCUMENTS_REFERENCE'
+  | 'MESSAGING'
+  | 'ISSUE_TRACKING'
+  | 'PAYMENTS'
   | 'CUSTOM';
 
 export interface ConnectorDefinition {
@@ -77,6 +80,42 @@ export const CONNECTORS: ConnectorDefinition[] = [
     category: 'DOCUMENTS_REFERENCE',
     description: 'Ingest document references from Notion pages.',
     requiredCredentials: ['accessToken'],
+    optionalCredentials: [],
+    testable: true,
+  },
+  /**
+   * Slack, Linear, and Stripe follow the market law for connection
+   * verification. Slack pins identity with auth.test, which answers
+   * HTTP 200 even when the token is bad, so the honest outcome must
+   * weigh the body ok flag and not the status alone. Linear verifies
+   * personal API keys with the raw key in the Authorization header,
+   * no Bearer prefix, against the GraphQL viewer query. Stripe
+   * accepts Bearer auth on the cheap GET /v1/account read.
+   */
+  {
+    id: 'slack',
+    label: 'Slack',
+    category: 'MESSAGING',
+    description: 'Send application event notifications to Slack channels.',
+    requiredCredentials: ['accessToken'],
+    optionalCredentials: ['channelId'],
+    testable: true,
+  },
+  {
+    id: 'linear',
+    label: 'Linear',
+    category: 'ISSUE_TRACKING',
+    description: 'Sync build issues and project tracking from Linear.',
+    requiredCredentials: ['apiKey'],
+    optionalCredentials: [],
+    testable: true,
+  },
+  {
+    id: 'stripe',
+    label: 'Stripe',
+    category: 'PAYMENTS',
+    description: 'Monitor product billing and payment activity from Stripe.',
+    requiredCredentials: ['secretKey'],
     optionalCredentials: [],
     testable: true,
   },
@@ -154,12 +193,14 @@ export function describeCredentials(
 
 /**
  * Builds the honest outbound test request for a connector. Returns null
- * for connectors with no testable surface.
+ * for connectors with no testable surface. Providers whose identity
+ * check requires a request body carry the method and the body here, so
+ * the caller honors them instead of assuming GET.
  */
 export function buildTestRequest(
   connector: ConnectorDefinition,
   credentials: Record<string, unknown>,
-): { url: string; headers: Record<string, string> } | null {
+): { url: string; headers: Record<string, string>; method?: 'GET' | 'POST'; body?: string } | null {
   if (connector.id === 'custom') {
     const baseUrl = typeof credentials.baseUrl === 'string' ? credentials.baseUrl : '';
     if (baseUrl.length === 0) return null;
@@ -200,6 +241,37 @@ export function buildTestRequest(
     const token = typeof credentials.accessToken === 'string' ? credentials.accessToken : '';
     if (token.length === 0) return null;
     return { url: 'https://api.notion.com/v1/users/me', headers: { authorization: 'Bearer ' + token, 'notion-version': '2022-06-28' } };
+  }
+  if (connector.id === 'slack') {
+    const token = typeof credentials.accessToken === 'string' ? credentials.accessToken : '';
+    if (token.length === 0) return null;
+    // Slack auth.test: the token rides the Authorization header.
+    return {
+      url: 'https://slack.com/api/auth.test',
+      headers: { authorization: 'Bearer ' + token, 'content-type': 'application/x-www-form-urlencoded' },
+      method: 'POST',
+      body: '',
+    };
+  }
+  if (connector.id === 'linear') {
+    const key = typeof credentials.apiKey === 'string' ? credentials.apiKey : '';
+    if (key.length === 0) return null;
+    // Linear: the raw personal API key, no Bearer prefix, on the viewer query.
+    return {
+      url: 'https://api.linear.app/graphql',
+      headers: { authorization: key, 'content-type': 'application/json' },
+      method: 'POST',
+      body: '{"query":"query { viewer { id } }"}',
+    };
+  }
+  if (connector.id === 'stripe') {
+    const key = typeof credentials.secretKey === 'string' ? credentials.secretKey : '';
+    if (key.length === 0) return null;
+    // Stripe: Bearer auth on the cheap authenticated account read.
+    return {
+      url: 'https://api.stripe.com/v1/account',
+      headers: { authorization: 'Bearer ' + key },
+    };
   }
   return null;
 }

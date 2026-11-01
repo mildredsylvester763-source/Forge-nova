@@ -228,8 +228,8 @@ suite('GENESIS keyed integration connection flows (real app, real database, real
       requiredCredentials: string[];
       testable: boolean;
     }>;
-    expect(connectors.length).toBe(7);
-    expect(new Set(connectors.map((entry) => entry.id)).size).toBe(7);
+    expect(connectors.length).toBe(10);
+    expect(new Set(connectors.map((entry) => entry.id)).size).toBe(10);
     connectors.forEach((entry) => {
       expect(entry.label.length).toBeGreaterThan(0);
       expect(entry.requiredCredentials.length).toBeGreaterThan(0);

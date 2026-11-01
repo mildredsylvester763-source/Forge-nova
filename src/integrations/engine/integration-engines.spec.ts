@@ -167,14 +167,30 @@ describe('integration engines', () => {
 
   describe('connector catalog engine', () => {
     it('offers named connectors with named credentials only', () => {
-      expect(CONNECTORS.length).toBe(7);
-      expect(new Set(CONNECTORS.map((c) => c.id)).size).toBe(7);
+      expect(CONNECTORS.length).toBe(10);
+      expect(new Set(CONNECTORS.map((c) => c.id)).size).toBe(10);
       for (const connector of CONNECTORS) {
         expect(connector.label.length).toBeGreaterThan(0);
         expect(connector.requiredCredentials.length).toBeGreaterThan(0);
         expect(lookupConnector(connector.id).ok).toBe(true);
       }
       expect(lookupConnector('shopify')).toEqual({ ok: false, reason: 'connector-unknown' });
+
+      const slackCatalog = CONNECTORS.find((c) => c.id === 'slack')!;
+      expect(slackCatalog.category).toBe('MESSAGING');
+      expect(slackCatalog.requiredCredentials).toEqual(['accessToken']);
+      expect(slackCatalog.optionalCredentials).toEqual(['channelId']);
+      expect(slackCatalog.testable).toBe(true);
+      const linearCatalog = CONNECTORS.find((c) => c.id === 'linear')!;
+      expect(linearCatalog.category).toBe('ISSUE_TRACKING');
+      expect(linearCatalog.requiredCredentials).toEqual(['apiKey']);
+      expect(linearCatalog.optionalCredentials).toEqual([]);
+      expect(linearCatalog.testable).toBe(true);
+      const stripeCatalog = CONNECTORS.find((c) => c.id === 'stripe')!;
+      expect(stripeCatalog.category).toBe('PAYMENTS');
+      expect(stripeCatalog.requiredCredentials).toEqual(['secretKey']);
+      expect(stripeCatalog.optionalCredentials).toEqual([]);
+      expect(stripeCatalog.testable).toBe(true);
     });
 
     it('validates credentials with named refusals', () => {
@@ -187,6 +203,16 @@ describe('integration engines', () => {
 
       const custom = CONNECTORS.find((c) => c.id === 'custom')!;
       expect(validateCredentials(custom, { baseUrl: 'http://127.0.0.1:9/x/' })).toEqual({ ok: true });
+
+      const slackValidate = CONNECTORS.find((c) => c.id === 'slack')!;
+      expect(validateCredentials(slackValidate, { accessToken: 'xoxb-token', channelId: 'C0123456789' })).toEqual({ ok: true });
+      expect(validateCredentials(slackValidate, { channelId: 'C0123456789' })).toEqual({ ok: false, reason: 'connector-missing-credential', field: 'accessToken' });
+      const linearValidate = CONNECTORS.find((c) => c.id === 'linear')!;
+      expect(validateCredentials(linearValidate, { apiKey: 'lin_api_key' })).toEqual({ ok: true });
+      expect(validateCredentials(linearValidate, { apiKey: '   ' })).toEqual({ ok: false, reason: 'connector-empty-credential', field: 'apiKey' });
+      const stripeValidate = CONNECTORS.find((c) => c.id === 'stripe')!;
+      expect(validateCredentials(stripeValidate, { secretKey: 'sk_test_key' })).toEqual({ ok: true });
+      expect(validateCredentials(stripeValidate, { publishableKey: 'pk_test_key' })).toEqual({ ok: false, reason: 'connector-unknown-credential', field: 'publishableKey' });
     });
 
     it('never echoes credential values back', () => {
@@ -201,6 +227,33 @@ describe('integration engines', () => {
       const noToken = buildTestRequest(custom, { baseUrl: 'http://127.0.0.1:9/' })!;
       expect(noToken.url).toBe('http://127.0.0.1:9/connection-test');
       expect(noToken.headers['authorization']).toBeUndefined();
+    });
+
+    it('pins the market-grounded test requests for slack, linear, and stripe', () => {
+      const slack = CONNECTORS.find((c) => c.id === 'slack')!;
+      const slackRequest = buildTestRequest(slack, { accessToken: 'xoxb-shape-test-token' })!;
+      expect(slackRequest.url).toBe('https://slack.com/api/auth.test');
+      expect(slackRequest.method).toBe('POST');
+      expect(slackRequest.body).toBe('');
+      expect(slackRequest.headers['authorization']).toBe('Bearer xoxb-shape-test-token');
+      expect(buildTestRequest(slack, { channelId: 'C0123456789' })).toBeNull();
+
+      const linear = CONNECTORS.find((c) => c.id === 'linear')!;
+      const linearRequest = buildTestRequest(linear, { apiKey: 'lin_api_shape_key' })!;
+      expect(linearRequest.url).toBe('https://api.linear.app/graphql');
+      expect(linearRequest.method).toBe('POST');
+      expect(linearRequest.body).toBe('{"query":"query { viewer { id } }"}');
+      expect(linearRequest.headers['authorization']).toBe('lin_api_shape_key');
+      expect(linearRequest.headers['authorization'].includes('Bearer')).toBe(false);
+      expect(buildTestRequest(linear, {})).toBeNull();
+
+      const stripe = CONNECTORS.find((c) => c.id === 'stripe')!;
+      const stripeRequest = buildTestRequest(stripe, { secretKey: 'sk_test_shape_key' })!;
+      expect(stripeRequest.url).toBe('https://api.stripe.com/v1/account');
+      expect(stripeRequest.method).toBeUndefined();
+      expect(stripeRequest.body).toBeUndefined();
+      expect(stripeRequest.headers['authorization']).toBe('Bearer sk_test_shape_key');
+      expect(buildTestRequest(stripe, { secretKey: '' })).toBeNull();
     });
 
     it('survives a 500-case randomized credential sweep (seed 42)', () => {
