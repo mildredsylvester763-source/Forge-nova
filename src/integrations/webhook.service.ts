@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { AccessControlService } from '../authorization/access-control.service';
 import { AuthenticatedApiKey } from '../api-keys/api-key.guard';
-import { actorAuditMetadata, keyActorFromApiKey } from '../api-keys/engine/api-key-policy';
+import { actorAuditMetadata, actorAttribution, keyActorFromApiKey, WriteActor } from '../api-keys/engine/api-key-policy';
 import { PrismaService } from '../database/prisma.service';
 import { CreateWebhookEndpointDto } from './dto/create-webhook-endpoint.dto';
 import { DispatchEventDto } from './dto/dispatch-event.dto';
@@ -56,6 +56,28 @@ export class WebhookService {
    */
   async createEndpoint(userId: string, organizationId: string, dto: CreateWebhookEndpointDto) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+    return this.createEndpointAsActor({ kind: 'user', userId }, organizationId, dto);
+  }
+
+  /**
+   * Key-authenticated endpoint create, grounded in the Stripe webhook
+   * endpoint create REST surface, where a write-capable key creates the
+   * endpoint and the response carries the signing secret exactly once
+   * (the Stripe secret field is populated on create): keys are minted
+   * only by organization admins, so a WRITE_ORGANIZATION key is an
+   * admin-delegated write, and the reveal-once secret goes to the
+   * acting key. The create lands exactly one audit row stamped via
+   * genapi with the acting key, and refusals never write audit rows.
+   */
+  async createEndpointForKey(key: AuthenticatedApiKey, dto: CreateWebhookEndpointDto) {
+    return this.createEndpointAsActor(keyActorFromApiKey(key), key.organizationId, dto);
+  }
+
+  private async createEndpointAsActor(
+    actor: WriteActor,
+    organizationId: string,
+    dto: CreateWebhookEndpointDto,
+  ) {
 
     let parsed: URL;
     try {
@@ -94,13 +116,13 @@ export class WebhookService {
         });
         await tx.auditEvent.create({
           data: {
-            actorUserId: userId,
+            actorUserId: actorAttribution(actor),
             organizationId,
             action: 'webhook.endpoint.create',
             resourceType: 'webhook_endpoint',
             resourceId: endpoint.id,
             outcome: 'SUCCESS',
-            metadata: { url: dto.url, eventSubscriptions: subscriptions },
+            metadata: actorAuditMetadata(actor, { url: dto.url, eventSubscriptions: subscriptions }),
           },
         });
         return { ...endpoint, secret };
@@ -146,6 +168,27 @@ export class WebhookService {
   /** Guarded delete: racing deletes get one 200 and one 404. */
   async removeEndpoint(userId: string, organizationId: string, endpointId: string) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+    return this.removeEndpointAsActor({ kind: 'user', userId }, organizationId, endpointId);
+  }
+
+  /**
+   * Key-authenticated endpoint delete, grounded in the GitHub repo
+   * webhook delete (the Webhooks write permission): deleting an
+   * endpoint immediately stops its deliveries. The guarded delete
+   * mirrors the JWT route exactly through the shared core - racing
+   * deletes get one 200 and one 404 - tenant-bounded to the key
+   * organization with one uniform 404, and the delete lands exactly
+   * one audit row stamped via genapi with the acting key.
+   */
+  async removeEndpointForKey(key: AuthenticatedApiKey, endpointId: string) {
+    return this.removeEndpointAsActor(keyActorFromApiKey(key), key.organizationId, endpointId);
+  }
+
+  private async removeEndpointAsActor(
+    actor: WriteActor,
+    organizationId: string,
+    endpointId: string,
+  ) {
     const deleted = await this.prisma.$transaction(async (tx) => {
       const result = await tx.webhookEndpoint.deleteMany({
         where: { id: endpointId, organizationId },
@@ -153,13 +196,13 @@ export class WebhookService {
       if (result.count !== 1) return false;
       await tx.auditEvent.create({
         data: {
-          actorUserId: userId,
+          actorUserId: actorAttribution(actor),
           organizationId,
           action: 'webhook.endpoint.delete',
           resourceType: 'webhook_endpoint',
           resourceId: endpointId,
           outcome: 'SUCCESS',
-          metadata: {},
+          metadata: actorAuditMetadata(actor, {}),
         },
       });
       return true;
@@ -188,6 +231,39 @@ export class WebhookService {
     dto: UpdateWebhookEndpointDto,
   ) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+    return this.updateEndpointAsActor({ kind: 'user', userId }, organizationId, endpointId, dto);
+  }
+
+  /**
+   * Key-authenticated partial endpoint update, grounded in the market
+   * leaders: the Stripe webhook endpoint update changes only the
+   * fields that were sent, and the GitHub webhook update runs behind
+   * the Webhooks write permission. The keyed update mirrors the JWT
+   * PATCH exactly through the shared core - same partial law, same
+   * honest no-op for an empty body, same uniform 404, same URL
+   * conflict - tenant-bounded to the key organization, and every
+   * landed update writes exactly one audit row stamped via genapi
+   * with the acting key.
+   */
+  async updateEndpointForKey(
+    key: AuthenticatedApiKey,
+    endpointId: string,
+    dto: UpdateWebhookEndpointDto,
+  ) {
+    return this.updateEndpointAsActor(
+      keyActorFromApiKey(key),
+      key.organizationId,
+      endpointId,
+      dto,
+    );
+  }
+
+  private async updateEndpointAsActor(
+    actor: WriteActor,
+    organizationId: string,
+    endpointId: string,
+    dto: UpdateWebhookEndpointDto,
+  ) {
 
     const hasUrl = typeof dto.url === 'string';
     const hasSubscriptions = Array.isArray(dto.eventSubscriptions);
@@ -245,13 +321,13 @@ export class WebhookService {
         });
         await tx.auditEvent.create({
           data: {
-            actorUserId: userId,
+            actorUserId: actorAttribution(actor),
             organizationId,
             action: 'webhook.endpoint.update',
             resourceType: 'webhook_endpoint',
             resourceId: endpointId,
             outcome: 'SUCCESS',
-            metadata: {
+            metadata: actorAuditMetadata(actor, {
               ...(hasUrl ? { url: dto.url! } : {}),
               ...(hasSubscriptions ? { eventSubscriptions: subscriptions! } : {}),
               ...(hasActive ? { active: dto.active! } : {}),
@@ -290,6 +366,29 @@ export class WebhookService {
    */
   async pingEndpoint(userId: string, organizationId: string, endpointId: string) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+    return this.pingEndpointAsActor({ kind: 'user', userId }, organizationId, endpointId);
+  }
+
+  /**
+   * Key-authenticated endpoint ping, grounded in the GitHub org
+   * webhook ping behind the Webhooks write permission: the ping is
+   * the market-standard confirmation that an endpoint is configured
+   * and reachable, sent when the operator asks for it. The keyed
+   * ping mirrors the JWT ping exactly through the shared core - one
+   * honest delivery row with one synchronous signed attempt -
+   * tenant-bounded to the key organization with one uniform 404, and
+   * every landed ping writes exactly one audit row stamped via
+   * genapi with the acting key.
+   */
+  async pingEndpointForKey(key: AuthenticatedApiKey, endpointId: string) {
+    return this.pingEndpointAsActor(keyActorFromApiKey(key), key.organizationId, endpointId);
+  }
+
+  private async pingEndpointAsActor(
+    actor: WriteActor,
+    organizationId: string,
+    endpointId: string,
+  ) {
 
     const endpoint = await this.prisma.webhookEndpoint.findFirst({
       where: { id: endpointId, organizationId },
@@ -321,13 +420,13 @@ export class WebhookService {
 
     await this.prisma.auditEvent.create({
       data: {
-        actorUserId: userId,
+        actorUserId: actorAttribution(actor),
         organizationId,
         action: 'webhook.endpoint.ping',
         resourceType: 'webhook_delivery',
         resourceId: delivery.id,
         outcome: 'SUCCESS',
-        metadata: { endpointId: endpoint.id, status: result.status, attempts: result.attempts },
+        metadata: actorAuditMetadata(actor, { endpointId: endpoint.id, status: result.status, attempts: result.attempts }),
       },
     });
 
@@ -352,6 +451,30 @@ export class WebhookService {
    */
   async rotateEndpointSecret(userId: string, organizationId: string, endpointId: string) {
     await this.access.requireOrganizationRole(userId, organizationId, this.access.adminRoles());
+    return this.rotateEndpointSecretAsActor({ kind: 'user', userId }, organizationId, endpointId);
+  }
+
+  /**
+   * Key-authenticated signing-secret rotation, grounded in the GitHub
+   * secret rotation through the update config.secret surface: keys
+   * are minted only by organization admins, so a WRITE_ORGANIZATION
+   * key is an admin-delegated rotation, and the fresh reveal-once
+   * secret goes to the acting key exactly like the create reveal.
+   * The rotation mirrors the JWT route exactly through the shared
+   * core - atomic updateMany claim, immediate invalidation, no
+   * overlap window - tenant-bounded to the key organization with one
+   * uniform 404, and every landed rotation writes exactly one audit
+   * row stamped via genapi with the acting key.
+   */
+  async rotateEndpointSecretForKey(key: AuthenticatedApiKey, endpointId: string) {
+    return this.rotateEndpointSecretAsActor(keyActorFromApiKey(key), key.organizationId, endpointId);
+  }
+
+  private async rotateEndpointSecretAsActor(
+    actor: WriteActor,
+    organizationId: string,
+    endpointId: string,
+  ) {
 
     const secret = 'whsec_' + randomBytes(24).toString('hex');
 
@@ -367,13 +490,13 @@ export class WebhookService {
       });
       await tx.auditEvent.create({
         data: {
-          actorUserId: userId,
+          actorUserId: actorAttribution(actor),
           organizationId,
           action: 'webhook.endpoint.rotate_secret',
           resourceType: 'webhook_endpoint',
           resourceId: endpointId,
           outcome: 'SUCCESS',
-          metadata: {},
+          metadata: actorAuditMetadata(actor, {}),
         },
       });
       return endpoint;
