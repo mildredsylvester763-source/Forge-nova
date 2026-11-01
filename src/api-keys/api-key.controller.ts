@@ -27,6 +27,7 @@ import { CreateWebhookEndpointDto } from '../integrations/dto/create-webhook-end
 import { DispatchEventDto } from '../integrations/dto/dispatch-event.dto';
 import { UpdateWebhookEndpointDto } from '../integrations/dto/update-webhook-endpoint.dto';
 import { WorkspaceService } from '../workspaces/workspace.service';
+import { CreateWorkspaceDto } from '../workspaces/dto/create-workspace.dto';
 import { ProjectService } from '../projects/project.service';
 import { CreateProjectDto } from '../projects/dto/create-project.dto';
 import { UpdateProjectDto } from '../projects/dto/update-project.dto';
@@ -303,6 +304,24 @@ export class GenapiController {
   @RequireScopes('READ_ORGANIZATION')
   listWorkspaces(@Req() request: KeyedRequest) {
     return this.workspaces.listForKey(request.apiKey!);
+  }
+
+  /**
+   * Key-authenticated workspace create. Grounded in the GitHub team
+   * create REST surface: creating an organization grouping structure
+   * needs the organization-level write permission, the team is
+   * always created inside the organization the token belongs to, and
+   * GitHub derives the team slug from the name server-side. Keys are
+   * minted only by organization admins, so a WRITE_ORGANIZATION key
+   * is an admin-delegated create, and a body organization other than
+   * the key organization answers the same uniform 404 the JWT admin
+   * gate gives for a foreign organization. There is no audit row
+   * because the JWT create writes none.
+   */
+  @Post('workspaces')
+  @RequireScopes('WRITE_ORGANIZATION')
+  createWorkspace(@Req() request: KeyedRequest, @Body() dto: CreateWorkspaceDto) {
+    return this.workspaces.createForKey(request.apiKey!, dto);
   }
 
   /**
