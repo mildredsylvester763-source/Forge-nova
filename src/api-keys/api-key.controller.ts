@@ -800,6 +800,49 @@ export class GenapiController {
   }
 
   /**
+   * Key-authenticated work graph planning trigger. Grounded in the
+   * market leaders: the GitHub workflow dispatch event triggers a
+   * workflow run behind the Actions write permission, never read,
+   * and the OpenAI thread run create starts an async run on a parent
+   * resource straight from an API key with one active run per
+   * thread - exactly the one active plan job per graph law here.
+   * WRITE_APPLICATIONS grants the trigger; the writable tenant bound
+   * refuses foreign, missing, and archived applications with one
+   * uniform 404 and the graph ownership check answers
+   * cross-application and unknown graph ids with the same uniform
+   * 404; the plan input carries the honest key attribution and
+   * requestedBy names the key creator because the worker executes
+   * the plan as that user exactly like the JWT trigger; a key whose
+   * creator no longer exists answers the named 409 instead of
+   * enqueuing a job that could never run; and the plan core is the
+   * one shared law, so a double-tap converges on the same job and a
+   * keyed trigger racing the JWT trigger converges on the winning
+   * job. There is no audit row because the JWT trigger writes none
+   * either - the job row is the record.
+   */
+  @Post('applications/:applicationId/work-graphs/:graphId/plan')
+  @RequireScopes('WRITE_APPLICATIONS')
+  async planWorkGraph(
+    @Req() request: KeyedRequest,
+    @Param('applicationId') applicationId: string,
+    @Param('graphId') graphId: string,
+  ) {
+    const key = request.apiKey!;
+    const attributedUserId = actorAttribution(keyActorFromApiKey(key));
+    if (attributedUserId === null) {
+      throw new ConflictException('The key creator no longer exists.');
+    }
+    const graph = await this.graphs.getWritableGraphForKey(key, applicationId, graphId);
+    const job = await this.jobs.enqueueGraphPlanForKey(key, attributedUserId, graph);
+    return {
+      jobId: job.id,
+      applicationId,
+      status: job.status,
+      createdAt: job.createdAt,
+    };
+  }
+
+  /**
    * Key-authenticated job listing. The shape and the newest-first order
    * mirror the JWT listing route exactly, so the two surfaces can never
    * drift apart. Grounded in the GitHub workflow-run listing: reading
