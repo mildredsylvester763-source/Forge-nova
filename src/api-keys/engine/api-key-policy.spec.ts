@@ -73,10 +73,12 @@ describe('api key policy engine', () => {
     expect(normalizeScopes(['read_projects'])).toBe('api-key.scope-unknown');
   });
 
-  it('accepts the write scope and dedupes it like any other scope', () => {
+  it('accepts the write scopes and dedupes them like any other scope', () => {
     const result = normalizeScopes(['WRITE_APPLICATIONS', 'WRITE_APPLICATIONS', 'READ_APPLICATIONS']);
     expect(result).toEqual({ scopes: ['WRITE_APPLICATIONS', 'READ_APPLICATIONS'] });
     expect(normalizeScopes(['WRITE_APPLICATIONS'])).toEqual({ scopes: ['WRITE_APPLICATIONS'] });
+    expect(normalizeScopes(['WRITE_ORGANIZATION', 'WRITE_ORGANIZATION']))
+      .toEqual({ scopes: ['WRITE_ORGANIZATION'] });
   });
 
   it('pins the complete honest scope set', () => {
@@ -85,6 +87,7 @@ describe('api key policy engine', () => {
       'READ_PROJECTS',
       'READ_APPLICATIONS',
       'WRITE_APPLICATIONS',
+      'WRITE_ORGANIZATION',
     ]);
   });
 

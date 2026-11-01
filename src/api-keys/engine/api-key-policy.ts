@@ -14,6 +14,7 @@ export const ALL_API_KEY_SCOPES = [
   'READ_PROJECTS',
   'READ_APPLICATIONS',
   'WRITE_APPLICATIONS',
+  'WRITE_ORGANIZATION',
 ] as const;
 
 export type ApiKeyScopeName = (typeof ALL_API_KEY_SCOPES)[number];
